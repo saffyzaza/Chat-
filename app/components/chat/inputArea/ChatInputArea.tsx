@@ -10,7 +10,13 @@ import {
   IoDocumentTextOutline,
   IoHardwareChipOutline,
   IoSparklesOutline,     
-  IoChatbubblesOutline   
+  IoChatbubblesOutline,
+  IoCloseOutline,
+  IoSearchOutline,
+  IoGitCompareOutline,
+  IoHelpCircleOutline,
+  IoStatsChartOutline,
+  IoCreateOutline
 } from 'react-icons/io5'
 
 // --- Component ย่อยสำหรับรายการเมนู Popup ---
@@ -27,12 +33,19 @@ const PopupMenuItem = ({ icon, text, onClick }: { icon: React.ReactNode, text: s
 // --- Props Interface (รับฟังก์ชันจาก ChatInterface) ---
 interface ChatInputAreaProps {
   onSend: (prompt: string) => void; 
-  isLoading: boolean;              
+  isLoading: boolean;    
+  // ส่ง prompt + ไฟล์ (ถ้า parent รองรับ) ใช้แทน onSend เมื่อมีไฟล์แนบ
+  onSendWithFiles?: (prompt: string, files: File[]) => void;
 }
 
-export const ChatInputArea = ({ onSend, isLoading }: ChatInputAreaProps) => {
+export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputAreaProps) => {
   const [prompt, setPrompt] = useState("");
   const [openPopup, setOpenPopup] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]); // เก็บไฟล์ที่แนบ
+  const [previews, setPreviews] = useState<string[]>([]); // URL สำหรับแสดงรูป
+
+  // --- Ref สำหรับ input file (ซ่อน) ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Refs สำหรับ Popups ---
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -76,10 +89,52 @@ export const ChatInputArea = ({ onSend, isLoading }: ChatInputAreaProps) => {
 
   // --- ฟังก์ชันส่งข้อความ ---
   const handleSubmit = () => {
-    if (prompt.trim() === "" || isLoading) return; 
-    onSend(prompt); 
-    setPrompt(""); 
+    if (prompt.trim() === "" || isLoading) return;
+    // ถ้ามีไฟล์และมี onSendWithFiles ให้เรียกฟังก์ชันนั้น
+    if (files.length > 0 && onSendWithFiles) {
+      onSendWithFiles(prompt, files);
+    } else {
+      onSend(prompt);
+    }
+    // เคลียร์ค่า
+    setPrompt("");
+    setFiles([]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
+
+  // --- เลือกไฟล์ ---
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    if (selected.length === 0) return;
+    // รวมไฟล์ใหม่กับไฟล์เดิม (กันซ้ำด้วย name + size)
+    setFiles(prev => {
+      const map = new Map<string, File>();
+      [...prev, ...selected].forEach(f => map.set(`${f.name}-${f.size}`, f));
+      return Array.from(map.values());
+    });
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // --- helper ตรวจว่าเป็นรูป png/jpeg ---
+  const isPreviewImage = (file: File) => {
+    const byExt = /\.(png|jpe?g)$/i.test(file.name);
+    const byType = file.type === 'image/png' || file.type === 'image/jpeg';
+    return byExt || byType;
+  };
+
+  // --- สร้าง/ล้าง object URLs สำหรับภาพตัวอย่าง ---
+  useEffect(() => {
+    const urls = files.map(f => (isPreviewImage(f) ? URL.createObjectURL(f) : ''));
+    setPreviews(urls);
+    return () => {
+      urls.forEach(u => {
+        if (u) URL.revokeObjectURL(u);
+      });
+    };
+  }, [files]);
 
   // --- ฟังก์ชันกด Enter ---
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -116,6 +171,54 @@ export const ChatInputArea = ({ onSend, isLoading }: ChatInputAreaProps) => {
           <IoPaperPlane size={20} />
         </button>
       </div>
+
+      {/* แสดงไฟล์ที่แนบ */}
+      {files.length > 0 && (
+        <div className='mt-2 flex flex-wrap gap-2'>
+          {files.map((f, i) => (
+            isPreviewImage(f) && previews[i] ? (
+              <div key={`img-${i}`} className='relative group'>
+                {/* รูปตัวอย่างขนาดเล็ก */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previews[i]}
+                  alt={f.name}
+                  className='w-16 h-16 rounded-lg object-cover border border-gray-200 shadow-sm'
+                />
+                <button
+                  type='button'
+                  onClick={() => removeFile(i)}
+                  className='absolute -top-2 -right-2 bg-black/70 text-white rounded-full p-1 hover:bg-black transition-colors'
+                  title='ลบไฟล์'
+                >
+                  <IoCloseOutline size={12} />
+                </button>
+              </div>
+            ) : (
+              <div key={`file-${i}`} className='flex items-center space-x-1 bg-gray-100 border border-gray-200 px-2 py-1 rounded-lg text-xs text-gray-700'>
+                <span className='max-w-40 truncate' title={f.name}>{f.name}</span>
+                <button
+                  type='button'
+                  onClick={() => removeFile(i)}
+                  className='text-gray-500 hover:text-red-500 transition-colors'
+                  title='ลบไฟล์'
+                >
+                  <IoCloseOutline size={14} />
+                </button>
+              </div>
+            )
+          ))}
+        </div>
+      )}
+
+      {/* input file ซ่อน */}
+      <input
+        ref={fileInputRef}
+        type='file'
+        multiple
+        className='hidden'
+        onChange={handleFileChange}
+      />
       
       {/* แถบเครื่องมือด้านล่าง (Popups) */}
       <div className='flex justify-between items-center mt-4 text-gray-500 text-sm'>
@@ -124,8 +227,23 @@ export const ChatInputArea = ({ onSend, isLoading }: ChatInputAreaProps) => {
           <div className="relative">
             {openPopup === 'add' && (
               <div ref={addPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem icon={<IoAttachOutline size={22} className="text-gray-600" />} text="อัปโหลดไฟล์" />
-                <PopupMenuItem icon={<IoLogoGoogle size={22} className="text-gray-600" />} text="เพิ่มจากไดรฟ์" />
+                <PopupMenuItem 
+                  icon={<IoAttachOutline size={22} className="text-gray-600" />} 
+                  text="อัปโหลดไฟล์" 
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setOpenPopup(null);
+                  }}
+                />
+                <PopupMenuItem 
+                  icon={<IoLogoGoogle size={22} className="text-gray-600" />} 
+                  text="เพิ่มจากไดรฟ์" 
+                  onClick={() => {
+                    // TODO: เชื่อมต่อ Google Drive API (stub)
+                    alert('ฟังก์ชันเพิ่มจากไดรฟ์ ยังไม่ได้เชื่อมต่อ');
+                    setOpenPopup(null);
+                  }}
+                />
               </div>
             )}
             <button ref={addBtnRef} onClick={() => togglePopup('add')} className={`text-[#eb6f45f1] cursor-pointer bg-gray-100 p-2 rounded-full hover:bg-gray-200 transition-colors ${openPopup === 'add' ? 'bg-gray-200' : ''}`}>
@@ -136,7 +254,41 @@ export const ChatInputArea = ({ onSend, isLoading }: ChatInputAreaProps) => {
           <div className="relative">
             {openPopup === 'tools' && (
               <div ref={toolsPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem icon={<IoDocumentTextOutline size={22} className="text-gray-600" />} text="เอกสารรายงาน" />
+                <PopupMenuItem 
+                  icon={<IoAttachOutline size={22} className="text-gray-600" />} 
+                  text="เพิ่มรูปภาพและไฟล์"
+                  onClick={() => { fileInputRef.current?.click(); setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoSearchOutline size={22} className="text-gray-600" />} 
+                  text="ค้นหาข้อมูล"
+                  onClick={() => { setOpenPopup(null); alert('ค้นหาข้อมูล: กำลังพัฒนา'); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoGitCompareOutline size={22} className="text-gray-600" />} 
+                  text="เปรียบเทียบข้อมูล"
+                  onClick={() => { setOpenPopup(null); alert('เปรียบเทียบข้อมูล: กำลังพัฒนา'); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoHelpCircleOutline size={22} className="text-gray-600" />} 
+                  text="ขอคำปรึกษา"
+                  onClick={() => { setOpenPopup(null); alert('ขอคำปรึกษา: กำลังพัฒนา'); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoDocumentTextOutline size={22} className="text-gray-600" />} 
+                  text="สรุปรายงาน"
+                  onClick={() => { setOpenPopup(null); alert('สรุปรายงาน: กำลังพัฒนา'); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoStatsChartOutline size={22} className="text-gray-600" />} 
+                  text="สร้างกราฟ"
+                  onClick={() => { setOpenPopup(null); alert('สร้างกราฟ: กำลังพัฒนา'); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoCreateOutline size={22} className="text-gray-600" />} 
+                  text="เขียนแผนงาน"
+                  onClick={() => { setOpenPopup(null); alert('เขียนแผนงาน: กำลังพัฒนา'); }}
+                />
               </div>
             )}
             <button ref={toolsBtnRef} onClick={() => togglePopup('tools')} className={`flex items-center cursor-pointer space-x-2 bg-gray-100 rounded-full px-4 py-2 hover:bg-gray-200 transition-colors ${openPopup === 'tools' ? 'bg-gray-200' : ''}`}>
@@ -145,21 +297,7 @@ export const ChatInputArea = ({ onSend, isLoading }: ChatInputAreaProps) => {
             </button>
           </div>
         </div>
-        {/* 3. ส่วนด้านขวา: 2.5 Pro และ Popup */}
         <div className='flex items-center space-x-2'>
-          <div className="relative">
-            {openPopup === 'model' && (
-              <div ref={modelPopupRef} className="absolute bottom-full right-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem icon={<IoHardwareChipOutline size={22} className="text-blue-500" />} text="AI Model A (Pro)" />
-                <PopupMenuItem icon={<IoSparklesOutline size={22} className="text-purple-500" />} text="AI Model B (Creative)" />
-                <PopupMenuItem icon={<IoChatbubblesOutline size={22} className="text-green-500" />} text="AI Model C (Fast)" />
-              </div>
-            )}
-            <button ref={modelBtnRef} onClick={() => togglePopup('model')} className={`flex items-center space-x-1 bg-gray-100 rounded-full px-4 py-2 hover:bg-gray-200 transition-colors ${openPopup === 'model' ? 'bg-gray-200' : ''}`}>
-              <span className='text-[#eb6f45f1] text-sm font-semibold'>2.5 Pro</span>
-              <IoEllipsisVertical size={18} className='text-gray-500' />
-            </button>
-          </div>
         </div>
       </div>
     </div>
