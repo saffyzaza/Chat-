@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, Calendar, MessageSquare, Trash2, Clock, MoreHorizontal, Star, Edit } from 'lucide-react';
+import { IoSearchOutline, IoChatbubbleEllipsesOutline, IoTrashOutline, IoEllipsisHorizontal, IoStarOutline, IoCreateOutline } from 'react-icons/io5';
 
 interface ChatHistory {
   id: string;
@@ -173,7 +173,7 @@ export default function HistoryChatPage() {
         {/* Search Bar */}
         <div className="mb-6">
           <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <IoSearchOutline className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
               placeholder="Search your chats..."
@@ -226,7 +226,7 @@ export default function HistoryChatPage() {
                 className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Delete selected"
               >
-                <Trash2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                <IoTrashOutline className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </button>
               <button
                 onClick={() => setSelectedChats([])}
@@ -245,7 +245,7 @@ export default function HistoryChatPage() {
         <div className="border-t border-gray-200 dark:border-gray-700">
           {filteredHistory.length === 0 ? (
             <div className="text-center py-16">
-              <MessageSquare className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
+              <IoChatbubbleEllipsesOutline className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
               <p className="text-gray-500 dark:text-gray-400 text-lg">
                 No chats found
               </p>
@@ -287,7 +287,7 @@ export default function HistoryChatPage() {
                       className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                       aria-label="More options"
                     >
-                      <MoreHorizontal className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+                      <IoEllipsisHorizontal className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
 
                     {/* Dropdown Menu */}
@@ -314,7 +314,7 @@ export default function HistoryChatPage() {
                             onClick={(e) => handleMenuAction('star', chat.id, e)}
                             className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                           >
-                            <Star className="w-5 h-5" />
+                            <IoStarOutline className="w-5 h-5" />
                             Star
                           </button>
                           
@@ -322,7 +322,7 @@ export default function HistoryChatPage() {
                             onClick={(e) => handleMenuAction('rename', chat.id, e)}
                             className="w-full px-4 py-2.5 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                           >
-                            <Edit className="w-5 h-5" />
+                            <IoCreateOutline className="w-5 h-5" />
                             Rename
                           </button>
                           
@@ -342,7 +342,7 @@ export default function HistoryChatPage() {
                             onClick={(e) => handleMenuAction('delete', chat.id, e)}
                             className="w-full px-4 py-2.5 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3"
                           >
-                            <Trash2 className="w-5 h-5" />
+                            <IoTrashOutline className="w-5 h-5" />
                             Delete
                           </button>
                         </div>
