@@ -63,24 +63,30 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                     {/* Navigation Links (โค้ดส่วนนี้เหมือนเดิมเกือบทั้งหมด) */}
                     <nav className="flex flex-col space-y-2 px-2">
                         {/* New Chat Button */}
-                        <button className={`flex items-center p-3 rounded-md bg-[#eb6f45f1] hover:bg-[#f56e41] text-white transition-all duration-200 hover:scale-105 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
+                        <button onClick={
+                            () => window.location.href = '/'
+                        } className={`flex items-center p-3 rounded-md bg-[#eb6f45f1] hover:bg-[#f56e41] text-white transition-all duration-200 hover:scale-105 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoAddCircle size={28} className="flex-shrink-0" />
                             <span className={`font-bold whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>New Chat</span>
                         </button>
 
                         {/* Other Menu Items */}
-                        <button className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
+                        <button onClick={
+                            () => window.location.href = '/history_chat'
+                        } className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoChatbubblesOutline size={24} className="text-gray-600 flex-shrink-0" />
                             <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>All Chats</span>
                         </button>
-                        <button className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
+                        <button onClick={
+                            () => window.location.href = '/project'
+                        } className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoExtensionPuzzleOutline size={24} className="text-gray-600 flex-shrink-0" />
                             <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>Project</span>
                         </button>
-                        <button className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
+                        {/* <button className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoCodeSlash size={24} className="text-gray-600 flex-shrink-0" />
                             <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>Code</span>
-                        </button>
+                        </button> */}
                         
                         {/* Search Bar */}
                         <div 
@@ -104,7 +110,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                 <div className="px-2">
                     <hr className="border-gray-300/70 my-2" />
                     <button className={`flex items-center space-x-3 p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? '' : 'justify-center'}`}>
-                        <IoPersonCircle size={28} className="text-gray-600 flex-shrink-0" />
+                        <IoPersonCircle size={28} className="text-gray-600 flex-shrink-0 " />
                         <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>My Account</span>
                     </button>
                 </div>
