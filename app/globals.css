@@ -1,3 +1,17 @@
 @import "tailwindcss";
 
+/* ซ่อน scrollbar แต่ยังคงสามารถ scroll ได้ */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+/* ให้ body และ html เต็มหน้าจอ */
+html, body {
+  overflow-x: hidden;
+}
 

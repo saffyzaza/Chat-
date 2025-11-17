@@ -1,76 +1,46 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { IoSearchOutline, IoChatbubbleEllipsesOutline, IoTrashOutline, IoEllipsisHorizontal, IoStarOutline, IoCreateOutline } from 'react-icons/io5';
-
-interface ChatHistory {
-  id: string;
-  title: string;
-  preview: string;
-  date: string;
-  messageCount: number;
-}
+import { useChatHistory } from '../hooks/useChatHistory';
 
 export default function HistoryChatPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [selectedChats, setSelectedChats] = useState<string[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  // ตัวอย่างข้อมูล (ในการใช้งานจริง จะดึงจาก API หรือ database)
-  const [chatHistory] = useState<ChatHistory[]>([
-    {
-      id: '1',
-      title: 'Unclear message',
-      preview: '',
-      date: '2025-11-12T10:30:00',
-      messageCount: 15
-    },
-    {
-      id: '2',
-      title: 'Unclear input',
-      preview: '',
-      date: '2025-11-12T14:20:00',
-      messageCount: 23
-    },
-    {
-      id: '3',
-      title: 'Numeric value interpretation',
-      preview: '',
-      date: '2025-11-12T09:15:00',
-      messageCount: 18
-    },
-    {
-      id: '4',
-      title: 'Thai numeral conversion',
-      preview: '',
-      date: '2025-11-12T16:45:00',
-      messageCount: 12
-    },
-    {
-      id: '5',
-      title: 'Thai Tax Calculation Website Template',
-      preview: '',
-      date: '2025-09-16T11:00:00',
-      messageCount: 30
-    },
-    {
-      id: '6',
-      title: 'Design microservices',
-      preview: '',
-      date: '2025-08-16T11:00:00',
-      messageCount: 30
-    }
-  ]);
+  // ใช้ chat history hook
+  const {
+    sessions,
+    isLoading,
+    deleteSession,
+    deleteSessions,
+    renameSession,
+    search,
+    filterByDate,
+    resetFilter,
+    loadSessions
+  } = useChatHistory();
+
+  // โหลดข้อมูลเมื่อ component mount
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  // ใช้ข้อมูลจาก localStorage เท่านั้น
+  const displaySessions = sessions;
 
   // กรองข้อมูลตามการค้นหา
-  const filteredHistory = chatHistory.filter(chat => {
+  const filteredHistory = displaySessions.filter(chat => {
     const matchesSearch = chat.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          chat.preview.toLowerCase().includes(searchQuery.toLowerCase());
     
     if (!matchesSearch) return false;
 
-    const chatDate = new Date(chat.date);
+    const chatDate = new Date(chat.updatedAt);
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - chatDate.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -110,16 +80,17 @@ export default function HistoryChatPage() {
   };
 
   const handleDeleteChat = (id: string) => {
-    // ฟังก์ชันสำหรับลบประวัติการสนทนา
-    console.log('Delete chat:', id);
+    // ลบประวัติการสนทนา
+    deleteSession(id);
+    setOpenMenuId(null);
   };
 
   const handleChatClick = (id: string) => {
     if (selectedChats.length > 0) {
       toggleChatSelection(id);
     } else {
-      // ฟังก์ชันสำหรับเปิดการสนทนา
-      console.log('Open chat:', id);
+      // เปิดการสนทนา - redirect ไปหน้า chat พร้อม session ID
+      router.push(`/?session=${id}`);
     }
   };
 
@@ -140,8 +111,8 @@ export default function HistoryChatPage() {
   };
 
   const handleDeleteSelected = () => {
-    console.log('Delete selected chats:', selectedChats);
-    // Logic สำหรับลบ chats ที่เลือก
+    // ลบ chats ที่เลือกทั้งหมด
+    deleteSessions(selectedChats);
     setSelectedChats([]);
   };
 
@@ -152,7 +123,26 @@ export default function HistoryChatPage() {
 
   const handleMenuAction = (action: string, id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log(`${action} chat:`, id);
+    
+    switch (action) {
+      case 'select':
+        toggleChatSelection(id);
+        break;
+      case 'delete':
+        handleDeleteChat(id);
+        break;
+      case 'rename':
+        const newTitle = prompt('Enter new title:');
+        if (newTitle) {
+          renameSession(id, newTitle);
+        }
+        break;
+      case 'star':
+      case 'add-to-project':
+        alert(`${action} feature coming soon!`);
+        break;
+    }
+    
     setOpenMenuId(null);
   };
 
@@ -164,7 +154,10 @@ export default function HistoryChatPage() {
           <h1 className="text-4xl font-semibold text-gray-600">
             Chats
           </h1>
-          <button className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors flex items-center gap-2">
+          <button 
+            onClick={() => router.push('/')}
+            className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors flex items-center gap-2"
+          >
             <span className="text-lg">+</span>
             New chat
           </button>
@@ -178,7 +171,15 @@ export default function HistoryChatPage() {
               type="text"
               placeholder="Search your chats..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                const query = e.target.value;
+                setSearchQuery(query);
+                if (query.trim()) {
+                  search(query);
+                } else {
+                  resetFilter();
+                }
+              }}
               className="w-full pl-16 pr-6 py-5 rounded-lg border border-gray-200 dark:border-gray-700 
                        bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400
                        focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent
@@ -243,7 +244,12 @@ export default function HistoryChatPage() {
 
         {/* Chat History List */}
         <div className="border-t border-gray-200 dark:border-gray-700">
-          {filteredHistory.length === 0 ? (
+          {isLoading ? (
+            <div className="text-center py-16">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 dark:border-white mx-auto mb-4"></div>
+              <p className="text-gray-500 dark:text-gray-400">Loading chats...</p>
+            </div>
+          ) : filteredHistory.length === 0 ? (
             <div className="text-center py-16">
               <IoChatbubbleEllipsesOutline className="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" />
               <p className="text-gray-500 dark:text-gray-400 text-lg">
@@ -276,7 +282,7 @@ export default function HistoryChatPage() {
                       {chat.title}
                     </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Last message {formatDate(chat.date)}
+                      Last message {formatDate(chat.updatedAt)}
                     </p>
                   </div>
                   

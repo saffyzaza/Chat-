@@ -271,7 +271,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
       <div className='flex justify-between items-center mt-4 text-gray-500 text-sm'>
         <div className='flex items-center space-x-2'>
           {/* 1. ปุ่ม Add และ Popup */}
-          <div className="relative">
+          {/* <div className="relative">
             {openPopup === 'add' && (
               <div ref={addPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
                 <PopupMenuItem 
@@ -296,7 +296,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
             <button ref={addBtnRef} onClick={() => togglePopup('add')} className={`text-[#eb6f45f1] cursor-pointer bg-gray-100 p-2 rounded-full hover:bg-gray-200 transition-colors ${openPopup === 'add' ? 'bg-gray-200' : ''}`}>
               <IoAdd size={22} />
             </button>
-          </div>
+          </div> */}
           {/* 2. ปุ่ม เครื่องมือ และ Popup */}
           <div className="relative">
             {openPopup === 'tools' && (
