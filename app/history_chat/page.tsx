@@ -30,62 +30,8 @@ export default function HistoryChatPage() {
     loadSessions();
   }, [loadSessions]);
 
-  // ตัวอย่างข้อมูล (สำรอง - ถ้าไม่มีข้อมูลจริง)
-  const [chatHistory] = useState([
-    {
-      id: '1',
-      title: 'Unclear message',
-      preview: '',
-      date: '2025-11-12T10:30:00',
-      messageCount: 15
-    },
-    {
-      id: '2',
-      title: 'Unclear input',
-      preview: '',
-      date: '2025-11-12T14:20:00',
-      messageCount: 23
-    },
-    {
-      id: '3',
-      title: 'Numeric value interpretation',
-      preview: '',
-      date: '2025-11-12T09:15:00',
-      messageCount: 18
-    },
-    {
-      id: '4',
-      title: 'Thai numeral conversion',
-      preview: '',
-      date: '2025-11-12T16:45:00',
-      messageCount: 12
-    },
-    {
-      id: '5',
-      title: 'Thai Tax Calculation Website Template',
-      preview: '',
-      date: '2025-09-16T11:00:00',
-      messageCount: 30
-    },
-    {
-      id: '6',
-      title: 'Design microservices',
-      preview: '',
-      date: '2025-08-16T11:00:00',
-      messageCount: 30
-    }
-  ]);
-
-  // ใช้ข้อมูลจาก localStorage แทน mock data
-  const displaySessions = sessions.length > 0 ? sessions : chatHistory.map(ch => ({
-    id: ch.id,
-    title: ch.title,
-    preview: ch.preview,
-    createdAt: ch.date,
-    updatedAt: ch.date,
-    messageCount: ch.messageCount,
-    messages: []
-  }));
+  // ใช้ข้อมูลจาก localStorage เท่านั้น
+  const displaySessions = sessions;
 
   // กรองข้อมูลตามการค้นหา
   const filteredHistory = displaySessions.filter(chat => {

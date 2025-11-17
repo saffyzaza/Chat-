@@ -636,6 +636,43 @@ export const ChatInterface = () => {
     loadSession
   } = useChatHistory();
   
+  // โหลด session จาก URL parameter
+  useEffect(() => {
+    // ตรวจสอบว่ามี session ID ใน URL หรือไม่
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session');
+    
+    if (sessionId) {
+      console.log('🔍 Loading session from URL:', sessionId);
+      
+      // โหลดประวัติจาก session ID
+      const session = loadSession(sessionId);
+      if (session) {
+        console.log('✅ Session loaded:', session.title, 'Messages:', session.messages.length);
+        
+        // แปลง ChatMessage[] เป็น Message[]
+        const loadedMessages: Message[] = session.messages
+          .filter(m => m.role !== 'system')
+          .map(m => ({
+            role: m.role,
+            content: m.content,
+            images: m.images,
+            charts: m.charts,
+            tables: m.tables,
+            codeBlocks: m.codeBlocks
+          }));
+        
+        setMessages(loadedMessages);
+        console.log('📝 Set messages to state:', loadedMessages.length, 'messages');
+        
+        // Clear URL parameter หลังโหลดเสร็จ (optional - เพื่อให้ URL สะอาด)
+        window.history.replaceState({}, '', '/');
+      } else {
+        console.error('❌ Session not found:', sessionId);
+      }
+    }
+  }, [loadSession]);
+  
   const handleSendChat = async (prompt: string, imageUrls?: string[], files?: File[]) => {
     if (isLoading) return;
 
@@ -668,8 +705,11 @@ export const ChatInterface = () => {
     
     // สร้าง session ใหม่ถ้ายังไม่มี
     let sessionId = currentSessionId;
+    console.log('📌 Current session ID:', sessionId);
+    
     if (!sessionId) {
       sessionId = createNewSession(prompt);
+      console.log('🆕 Created new session:', sessionId);
     }
     
     // บันทึก user message ลง localStorage (เพิ่ม timestamp)
@@ -677,6 +717,7 @@ export const ChatInterface = () => {
       ...userMessage,
       timestamp: new Date().toISOString()
     });
+    console.log('💾 Saved user message to session:', sessionId);
     
     // เพิ่ม System Prompt เข้าไปใน State ด้วย (เพื่อให้ ChatInputArea ไม่ต้องส่ง)
     const newMessages: Message[] = [
@@ -862,9 +903,19 @@ export const ChatInterface = () => {
     }
   };
 
+  // ฟังก์ชันเริ่มแชทใหม่
+  const handleNewChat = () => {
+    setMessages([]);
+    window.history.replaceState({}, '', '/');
+    console.log('Started new chat');
+  };
+
   return (
     // เปลี่ยน layout ให้เป็น Flex Column เต็มจอ
     <div className='h-screen bg-gray-100 flex flex-col'>
+      
+      {/* Header พร้อมปุ่ม New Chat */}
+      
       
       {/* ส่วนแสดงผลแชท หรือ หน้าจอ Welcome */}
       <div className='flex-1 flex flex-col items-center w-full overflow-y-auto pt-8'>
