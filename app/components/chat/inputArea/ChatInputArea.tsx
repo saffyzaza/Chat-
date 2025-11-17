@@ -32,17 +32,28 @@ const PopupMenuItem = ({ icon, text, onClick }: { icon: React.ReactNode, text: s
 
 // --- Props Interface (รับฟังก์ชันจาก ChatInterface) ---
 interface ChatInputAreaProps {
-  onSend: (prompt: string) => void; 
+  onSend: (prompt: string, imageUrls?: string[], files?: File[]) => void; 
   isLoading: boolean;    
   // ส่ง prompt + ไฟล์ (ถ้า parent รองรับ) ใช้แทน onSend เมื่อมีไฟล์แนบ
-  onSendWithFiles?: (prompt: string, files: File[]) => void;
+  onSendWithFiles?: (prompt: string, files: File[], imageUrls?: string[]) => void;
 }
+
+// --- ข้อมูล Prompt สำหรับเมนูเครื่องมือ ---
+const TOOL_PROMPTS = {
+  search: "ช่วยค้นหาข้อมูลเกี่ยวกับสุขภาพให้หน่อย",
+  compare: "ช่วยเปรียบเทียบข้อมูลด้านสุขภาพให้หน่อย",
+  consult: "ต้องการคำปรึกษาเกี่ยวกับสุขภาพ",
+  summary: "ช่วยสรุปรายงานด้านสุขภาพให้หน่อย",
+  chart: "ช่วยอธิบายข้อมูลในรูปแบบที่เข้าใจง่าย",
+  plan: "ช่วยวางแผนการดูแลสุขภาพให้หน่อย"
+};
 
 export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputAreaProps) => {
   const [prompt, setPrompt] = useState("");
-  const [openPopup, setOpenPopup] = useState<string | null>(null);
+  const [openPopup, setOpenPopup] = useState<string | null>(null); 
   const [files, setFiles] = useState<File[]>([]); // เก็บไฟล์ที่แนบ
   const [previews, setPreviews] = useState<string[]>([]); // URL สำหรับแสดงรูป
+  const [selectedTool, setSelectedTool] = useState<string | null>(null); // เก็บเครื่องมือที่เลือก
 
   // --- Ref สำหรับ input file (ซ่อน) ---
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,16 +100,32 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
 
   // --- ฟังก์ชันส่งข้อความ ---
   const handleSubmit = () => {
-    if (prompt.trim() === "" || isLoading) return;
-    // ถ้ามีไฟล์และมี onSendWithFiles ให้เรียกฟังก์ชันนั้น
-    if (files.length > 0 && onSendWithFiles) {
-      onSendWithFiles(prompt, files);
-    } else {
-      onSend(prompt);
+    // ถ้ามี tool ที่เลือกแต่ไม่มี prompt ให้ใช้ prompt จาก tool
+    let finalPrompt = prompt.trim();
+    if (selectedTool && finalPrompt === "") {
+      // เลือก prompt ตามชื่อ tool
+      const toolMap: { [key: string]: string } = {
+        'ค้นหาข้อมูล': TOOL_PROMPTS.search,
+        'เปรียบเทียบข้อมูล': TOOL_PROMPTS.compare,
+        'ขอคำปรึกษา': TOOL_PROMPTS.consult,
+        'สรุปรายงาน': TOOL_PROMPTS.summary,
+        'สร้างกราฟ': TOOL_PROMPTS.chart,
+        'เขียนแผนงาน': TOOL_PROMPTS.plan
+      };
+      finalPrompt = toolMap[selectedTool] || "";
     }
+    
+    if (finalPrompt === "" || isLoading) return;
+    
+    // ส่ง URL ของรูปภาพ (previews) ไปด้วย
+    const imageUrls = previews.filter(url => url !== '');
+    
+    // ส่งทั้งรูปภาพและไฟล์ไปด้วย
+    onSend(finalPrompt, imageUrls, files);
     // เคลียร์ค่า
     setPrompt("");
     setFiles([]);
+    setSelectedTool(null); // เคลียร์เครื่องมือที่เลือก
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -220,6 +247,26 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
         onChange={handleFileChange}
       />
       
+      {/* แสดง Tool ที่เลือกเป็น Chip */}
+      {selectedTool && (
+        <div className='mt-3 flex items-center'>
+          <div className='flex items-center space-x-2 bg-blue-50 border border-blue-200 text-blue-600 px-3 py-1.5 rounded-full text-sm shadow-sm'>
+            <IoBulbOutline size={16} className='text-blue-500' />
+            <span className='font-medium'>{selectedTool}</span>
+            <button
+              type='button'
+              onClick={() => {
+                setSelectedTool(null);
+              }}
+              className='text-blue-500 hover:text-blue-700 transition-colors ml-1'
+              title='ลบ'
+            >
+              <IoCloseOutline size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* แถบเครื่องมือด้านล่าง (Popups) */}
       <div className='flex justify-between items-center mt-4 text-gray-500 text-sm'>
         <div className='flex items-center space-x-2'>
@@ -262,32 +309,50 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
                 <PopupMenuItem 
                   icon={<IoSearchOutline size={22} className="text-gray-600" />} 
                   text="ค้นหาข้อมูล"
-                  onClick={() => { setOpenPopup(null); alert('ค้นหาข้อมูล: กำลังพัฒนา'); }}
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('ค้นหาข้อมูล');
+                  }}
                 />
                 <PopupMenuItem 
                   icon={<IoGitCompareOutline size={22} className="text-gray-600" />} 
                   text="เปรียบเทียบข้อมูล"
-                  onClick={() => { setOpenPopup(null); alert('เปรียบเทียบข้อมูล: กำลังพัฒนา'); }}
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('เปรียบเทียบข้อมูล');
+                  }}
                 />
                 <PopupMenuItem 
                   icon={<IoHelpCircleOutline size={22} className="text-gray-600" />} 
                   text="ขอคำปรึกษา"
-                  onClick={() => { setOpenPopup(null); alert('ขอคำปรึกษา: กำลังพัฒนา'); }}
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('ขอคำปรึกษา');
+                  }}
                 />
                 <PopupMenuItem 
                   icon={<IoDocumentTextOutline size={22} className="text-gray-600" />} 
                   text="สรุปรายงาน"
-                  onClick={() => { setOpenPopup(null); alert('สรุปรายงาน: กำลังพัฒนา'); }}
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('สรุปรายงาน');
+                  }}
                 />
                 <PopupMenuItem 
                   icon={<IoStatsChartOutline size={22} className="text-gray-600" />} 
                   text="สร้างกราฟ"
-                  onClick={() => { setOpenPopup(null); alert('สร้างกราฟ: กำลังพัฒนา'); }}
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('สร้างกราฟ');
+                  }}
                 />
                 <PopupMenuItem 
                   icon={<IoCreateOutline size={22} className="text-gray-600" />} 
                   text="เขียนแผนงาน"
-                  onClick={() => { setOpenPopup(null); alert('เขียนแผนงาน: กำลังพัฒนา'); }}
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('เขียนแผนงาน');
+                  }}
                 />
               </div>
             )}
