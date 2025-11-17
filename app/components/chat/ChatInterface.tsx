@@ -44,14 +44,14 @@ const SYSTEM_PROMPT = `คุณคือ "ผู้ช่วย AI สร้า
 
 
 // --- Component ย่อย (คงไว้ในไฟล์นี้) ---
-const SuggestionCard = ({ title, description }: { title: string, description: string }) => (
-  <div className="bg-white p-4 rounded-xl shadow-sm hover:shadow-md cursor-pointer transition-shadow border border-gray-100">
+const SuggestionCard = ({ title, description, onClick }: { title: string, description: string, onClick?: () => void }) => (
+  <div onClick={onClick} className="bg-white p-4 rounded-xl shadow-sm hover:shadow-md cursor-pointer transition-shadow border border-gray-100">
     <p className="font-semibold text-gray-700">{title}</p>
     <p className="text-sm text-gray-500">{description}</p>
   </div>
 );
 
-const WelcomeScreen = () => (
+const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: string) => void }) => (
   <>
     <div className='flex flex-col items-center space-y-4 mb-8 mt-40'>
       <img src="https://www.thaihealth.or.th/wp-content/uploads/2023/08/Logo-thaihealth.png" alt="Logo" className="h-20" />
@@ -60,10 +60,26 @@ const WelcomeScreen = () => (
       </p>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <SuggestionCard title="วิธีลดความเครียด" description="ค้นหาเทคนิคและกิจกรรมผ่อนคลา" />
-      <SuggestionCard title="อาหารสุขภาพ" description="ไอเดียเมนูสำหรับคนทำงาน" />
-      <SuggestionCard title="ออกกำลังกายที่บ้าน" description="แนะนำท่าง่ายๆ ไม่ต้องใช้อุปกรณ์" />
-      <SuggestionCard title="ปรึกษาการเลิกบุหรี่" description="ขั้นตอนและเคล็ดลับในการเลิก" />
+      <SuggestionCard 
+        title="วิธีลดความเครียด" 
+        description="ค้นหาเทคนิคและกิจกรรมผ่อนคลา" 
+        onClick={() => onSuggestionClick("แนะนำวิธีลดความเครียดและเทคนิคผ่อนคลายที่ใช้ได้ในชีวิตประจำวัน")}
+      />
+      <SuggestionCard 
+        title="อาหารสุขภาพ" 
+        description="ไอเดียเมนูสำหรับคนทำงาน" 
+        onClick={() => onSuggestionClick("แนะนำเมนูอาหารสุขภาพที่เหมาะสำหรับคนทำงาน ทำง่าย มีประโยชน์")}
+      />
+      <SuggestionCard 
+        title="ออกกำลังกายที่บ้าน" 
+        description="แนะนำท่าง่ายๆ ไม่ต้องใช้อุปกรณ์" 
+        onClick={() => onSuggestionClick("แนะนำท่าออกกำลังกายง่ายๆ ที่สามารถทำได้ที่บ้านโดยไม่ต้องใช้อุปกรณ์")}
+      />
+      <SuggestionCard 
+        title="ปรึกษาการเลิกบุหรี่" 
+        description="ขั้นตอนและเคล็ดลับในการเลิก" 
+        onClick={() => onSuggestionClick("ต้องการคำปรึกษาเกี่ยวกับการเลิกบุหรี่ มีขั้นตอนและเคล็ดลับอะไรบ้าง")}
+      />
     </div>
   </>
 );
@@ -73,12 +89,16 @@ export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]); 
   const [isLoading, setIsLoading] = useState(false);     
   
-  const handleSendChat = async (prompt: string) => {
+  const handleSendChat = async (prompt: string, imageUrls?: string[], files?: File[]) => {
     if (isLoading) return;
 
     setIsLoading(true);
 
-    const userMessage: Message = { role: 'user', content: prompt };
+    const userMessage: Message = { 
+      role: 'user', 
+      content: prompt,
+      images: imageUrls && imageUrls.length > 0 ? imageUrls : undefined
+    };
     // เพิ่ม System Prompt เข้าไปใน State ด้วย (เพื่อให้ ChatInputArea ไม่ต้องส่ง)
     const newMessages: Message[] = [
       ...messages,
@@ -88,9 +108,6 @@ export const ChatInterface = () => {
     // ตั้งค่าข้อความที่จะแสดงผลบน UI
     setMessages(newMessages);
 
-    // ดึง API Key จาก .env
-    const apiKey = process.env.REACT_APP_OPENROUTER_API_KEY;
-
     // สร้าง System Message
     const systemMessage: Message = {
       role: 'system',
@@ -98,25 +115,173 @@ export const ChatInterface = () => {
     };
 
     try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      // แปลง messages เป็นรูปแบบที่ OpenRouter ต้องการ
+      const apiMessages = await Promise.all(newMessages.map(async (msg) => {
+        if (msg.role === 'system') {
+          return {
+            role: 'system',
+            content: msg.content
+          };
+        }
+        
+        // ถ้ามีรูปภาพ ต้องแปลงเป็น base64
+        if (msg.images && msg.images.length > 0) {
+          const imageContents = await Promise.all(
+            msg.images.map(async (imageUrl) => {
+              try {
+                // แปลง blob URL เป็น base64
+                const response = await fetch(imageUrl);
+                const blob = await response.blob();
+                return new Promise<string>((resolve) => {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    const base64 = reader.result as string;
+                    resolve(base64);
+                  };
+                  reader.readAsDataURL(blob);
+                });
+              } catch (error) {
+                console.error('Error converting image:', error);
+                return null;
+              }
+            })
+          );
+
+          // สร้าง content array ที่มีทั้งข้อความและรูปภาพ
+          const content: any[] = [];
+          
+          // เพิ่มรูปภาพก่อน
+          imageContents.forEach(base64 => {
+            if (base64) {
+              content.push({
+                type: 'image_url',
+                image_url: {
+                  url: base64
+                }
+              });
+            }
+          });
+          
+          // เพิ่มข้อความ
+          if (msg.content) {
+            content.push({
+              type: 'text',
+              text: msg.content
+            });
+          }
+
+          return {
+            role: msg.role,
+            content: content
+          };
+        }
+        
+        // ไม่มีรูปภาพ ส่งแค่ข้อความ
+        return {
+          role: msg.role,
+          content: msg.content
+        };
+      }));
+
+      // ใช้ Google Gemini API โดยตรง
+      const API_KEY = "AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8";
+      
+      // สร้าง contents สำหรับ Gemini API
+      const contents = [];
+      
+      // เพิ่ม system instruction ใน parts แรก
+      contents.push({
+        role: 'user',
+        parts: [{ text: SYSTEM_PROMPT }]
+      });
+      
+      // แปลง messages เป็นรูปแบบของ Gemini
+      for (const msg of apiMessages) {
+        if (msg.role === 'system') continue; // ข้าม system message
+        
+        const parts: any[] = [];
+        
+        if (Array.isArray(msg.content)) {
+          // มีรูปภาพ
+          for (const item of msg.content) {
+            if (item.type === 'image_url') {
+              // แปลง base64 เป็นรูปแบบที่ Gemini ต้องการ
+              const base64Data = item.image_url.url.split(',')[1];
+              const mimeType = item.image_url.url.match(/data:(.*?);/)?.[1] || 'image/jpeg';
+              parts.push({
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Data
+                }
+              });
+            } else if (item.type === 'text') {
+              parts.push({ text: item.text });
+            }
+          }
+        } else {
+          // ข้อความธรรมดา
+          parts.push({ text: msg.content });
+        }
+        
+        contents.push({
+          role: msg.role === 'assistant' ? 'model' : 'user',
+          parts: parts
+        });
+      }
+      
+      // เพิ่มไฟล์ PDF ถ้ามี
+      if (files && files.length > 0) {
+        for (const file of files) {
+          if (file.type === 'application/pdf') {
+            // แปลง PDF เป็น base64
+            const base64Data = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const result = reader.result as string;
+                const base64 = result.split(',')[1];
+                resolve(base64);
+              };
+              reader.readAsDataURL(file);
+            });
+            
+            // เพิ่ม PDF เข้าไปใน parts ของ message สุดท้าย
+            if (contents.length > 1) {
+              contents[contents.length - 1].parts.push({
+                inlineData: {
+                  mimeType: 'application/pdf',
+                  data: base64Data
+                }
+              });
+            }
+          }
+        }
+      }
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer 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`, 
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash-lite", 
-          // ส่ง [System] + [ประวัติแชท] + [ข้อความใหม่]
-          messages: [systemMessage, ...newMessages] 
+          contents: contents,
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 8192,
+          }
         })
       });
 
       if (!response.ok) {
-        throw new Error("API request failed");
+        const errorData = await response.json().catch(() => ({}));
+        console.error("API Error Response:", errorData);
+        throw new Error(`API request failed: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
       }
 
       const data = await response.json();
-      const aiResponse: string = data.choices[0].message.content;
+      // Gemini API ส่ง response ในรูปแบบ candidates[0].content.parts[0].text
+      const aiResponse: string = data.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัย ไม่สามารถสร้างคำตอบได้";
 
       // เพิ่มคำตอบของ AI ลงใน State
       setMessages(prevMessages => [
@@ -143,7 +308,7 @@ export const ChatInterface = () => {
       <div className='flex-1 flex flex-col items-center w-full overflow-y-auto pt-8'>
         <div className="w-full max-w-3xl">
           {messages.length === 0 ? (
-            <WelcomeScreen />
+            <WelcomeScreen onSuggestionClick={handleSendChat} />
           ) : (
             <MessageList messages={messages} isLoading={isLoading} />
           )}

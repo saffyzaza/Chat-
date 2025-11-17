@@ -5,6 +5,7 @@ import { IoHardwareChipOutline } from 'react-icons/io5';
 export interface Message {
   role: 'user' | 'assistant' | 'system'; // เพิ่ม 'system'
   content: string;
+  images?: string[]; // URL ของรูปภาพที่แนบ (optional)
 }
 
 interface MessageListProps {
@@ -27,6 +28,21 @@ export const MessageList = ({ messages, isLoading }: MessageListProps) => {
               ? 'bg-[#eb6f45f1] text-white' 
               : 'bg-gray-200 text-gray-800'
           }`}>
+            {/* แสดงรูปภาพถ้ามี */}
+            {msg.images && msg.images.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {msg.images.map((imgUrl, imgIndex) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={imgIndex}
+                    src={imgUrl}
+                    alt={`attachment-${imgIndex}`}
+                    className="rounded-lg object-cover border border-white/20"
+                    style={{ width: '80px', height: '80px' }}
+                  />
+                ))}
+              </div>
+            )}
             {/* ใช้ pre-wrap เพื่อให้ \n (ขึ้นบรรทัดใหม่) ทำงาน */}
             <p style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</p>
           </div>
