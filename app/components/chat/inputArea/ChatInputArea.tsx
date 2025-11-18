@@ -16,14 +16,27 @@ import {
   IoGitCompareOutline,
   IoHelpCircleOutline,
   IoStatsChartOutline,
-  IoCreateOutline
+  IoCreateOutline,
+  IoMicOutline,
+  IoCameraOutline,
+  IoImageOutline
 } from 'react-icons/io5'
 
 // --- Component ย่อยสำหรับรายการเมนู Popup ---
-const PopupMenuItem = ({ icon, text, onClick }: { icon: React.ReactNode, text: string, onClick?: () => void }) => (
+const PopupMenuItem = ({ icon, text, onClick, disabled = false }: { 
+  icon: React.ReactNode, 
+  text: string, 
+  onClick?: () => void,
+  disabled?: boolean
+}) => (
   <button 
     onClick={onClick}
-    className="flex items-center w-full space-x-3 p-3 rounded-lg hover:bg-gray-100 text-gray-700 transition-colors"
+    disabled={disabled}
+    className={`flex items-center w-full space-x-3 p-3 rounded-lg transition-colors ${
+      disabled 
+        ? 'text-gray-400 cursor-not-allowed' 
+        : 'text-gray-700 hover:bg-gray-100 cursor-pointer'
+    }`}
   >
     {icon}
     <span className="font-medium">{text}</span>
@@ -40,12 +53,12 @@ interface ChatInputAreaProps {
 
 // --- ข้อมูล Prompt สำหรับเมนูเครื่องมือ ---
 const TOOL_PROMPTS = {
-  search: "ช่วยค้นหาข้อมูลเกี่ยวกับสุขภาพให้หน่อย",
-  compare: "ช่วยเปรียบเทียบข้อมูลด้านสุขภาพให้หน่อย",
-  consult: "ต้องการคำปรึกษาเกี่ยวกับสุขภาพ",
-  summary: "ช่วยสรุปรายงานด้านสุขภาพให้หน่อย",
-  chart: "ช่วยอธิบายข้อมูลในรูปแบบที่เข้าใจง่าย",
-  plan: "ช่วยวางแผนการดูแลสุขภาพให้หน่อย"
+  search: "ช่วยค้นหาข้อมูลเกี่ยวกับข้อมูลนี้",
+  compare: "ช่วยเปรียบเทียบข้อมูลนี้",
+  consult: "ต้องการคำปรึกษาเกี่ยวกับข้อมูลนี้",
+  summary: "ช่วยสรุปข้อมูลนี้",
+  chart: "ช่วยสร้างกราฟจากข้อมูลนี้",
+  plan: "ช่วยวางแผนจากข้อมูลนี้"
 };
 
 export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputAreaProps) => {
@@ -54,9 +67,12 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
   const [files, setFiles] = useState<File[]>([]); // เก็บไฟล์ที่แนบ
   const [previews, setPreviews] = useState<string[]>([]); // URL สำหรับแสดงรูป
   const [selectedTool, setSelectedTool] = useState<string | null>(null); // เก็บเครื่องมือที่เลือก
+  const [isRecording, setIsRecording] = useState(false); // สถานะการบันทึกเสียง
 
   // --- Ref สำหรับ input file (ซ่อน) ---
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   // --- Refs สำหรับ Popups ---
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -100,9 +116,12 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
 
   // --- ฟังก์ชันส่งข้อความ ---
   const handleSubmit = () => {
-    // ถ้ามี tool ที่เลือกแต่ไม่มี prompt ให้ใช้ prompt จาก tool
     let finalPrompt = prompt.trim();
-    if (selectedTool && finalPrompt === "") {
+    const hasFiles = files.length > 0; // ตรวจสอบว่ามีไฟล์หรือไม่
+    const userTypedOwnPrompt = finalPrompt !== ""; // ผู้ใช้พิมพ์เองหรือไม่
+    
+    // กรณีที่ 1: มีเครื่องมือ + ไม่มี prompt ที่พิมพ์เอง
+    if (selectedTool && !userTypedOwnPrompt) {
       // เลือก prompt ตามชื่อ tool
       const toolMap: { [key: string]: string } = {
         'ค้นหาข้อมูล': TOOL_PROMPTS.search,
@@ -113,7 +132,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
         'เขียนแผนงาน': TOOL_PROMPTS.plan
       };
       finalPrompt = toolMap[selectedTool] || "";
+      
+      // ถ้ามีไฟล์แนบ → ต่อท้ายด้วย " จากไฟล์/รูปภาพที่แนบมา"
+      if (hasFiles && finalPrompt) {
+        finalPrompt += " จากไฟล์/รูปภาพที่แนบมา";
+      }
     }
+    // กรณีที่ 2: ผู้ใช้พิมพ์เอง → ใช้ prompt ที่พิมพ์ตามเดิม (ไม่ต่อท้าย)
+    // กรณีที่ 3: ไม่มีเครื่องมือ + ไม่มี prompt → ไม่ส่ง
     
     if (finalPrompt === "" || isLoading) return;
     
@@ -125,8 +151,11 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
     // เคลียร์ค่า
     setPrompt("");
     setFiles([]);
+    setPreviews([]);
     setSelectedTool(null); // เคลียร์เครื่องมือที่เลือก
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
 
   // --- เลือกไฟล์ ---
@@ -171,6 +200,12 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
     }
   };
 
+  // --- ฟังก์ชันบันทึกเสียง ---
+  const toggleRecording = () => {
+    setIsRecording(!isRecording);
+    // ที่นี่ควรมี logic สำหรับการบันทึกเสียงจริง
+  };
+
   return (
     <div className='bg-white p-4 rounded-xl shadow-lg w-full'>
       {/* แถบ Input หลัก */}
@@ -187,10 +222,22 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
         />
         <button 
           type="button"
+          onClick={toggleRecording}
+          className={`p-2 rounded-lg transition-colors ${
+            isRecording 
+              ? 'bg-red-500 text-white' 
+              : 'text-gray-500 hover:bg-gray-200'
+          }`}
+          title={isRecording ? "หยุดบันทึก" : "บันทึกเสียง"}
+        >
+          <IoMicOutline size={20} />
+        </button>
+        <button 
+          type="button"
           onClick={handleSubmit}
-          disabled={isLoading || prompt.trim() === ""}
+          disabled={isLoading || (prompt.trim() === "" && !selectedTool && files.length === 0)}
           className={`p-2 rounded-lg text-white ${
-            (isLoading || prompt.trim() === "")
+            (isLoading || (prompt.trim() === "" && !selectedTool && files.length === 0))
               ? 'bg-gray-400' 
               : 'bg-[#eb6f45f1] hover:bg-opacity-90'
           } transition-colors`}
@@ -247,6 +294,25 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
         onChange={handleFileChange}
       />
       
+      <input
+        ref={imageInputRef}
+        type='file'
+        multiple
+        accept='image/*'
+        className='hidden'
+        onChange={handleFileChange}
+      />
+      
+      <input
+        ref={cameraInputRef}
+        type='file'
+        multiple
+        accept='image/*'
+        capture='environment'
+        className='hidden'
+        onChange={handleFileChange}
+      />
+      
       {/* แสดง Tool ที่เลือกเป็น Chip */}
       {selectedTool && (
         <div className='mt-3 flex items-center'>
@@ -271,41 +337,58 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
       <div className='flex justify-between items-center mt-4 text-gray-500 text-sm'>
         <div className='flex items-center space-x-2'>
           {/* 1. ปุ่ม Add และ Popup */}
-          {/* <div className="relative">
+          <div className="relative">
             {openPopup === 'add' && (
               <div ref={addPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
                 <PopupMenuItem 
                   icon={<IoAttachOutline size={22} className="text-gray-600" />} 
-                  text="อัปโหลดไฟล์" 
-                  onClick={() => {
-                    fileInputRef.current?.click();
-                    setOpenPopup(null);
-                  }}
+                  text="เพิ่มไฟล์"
+                  onClick={() => { fileInputRef.current?.click(); setOpenPopup(null); }}
                 />
                 <PopupMenuItem 
-                  icon={<IoLogoGoogle size={22} className="text-gray-600" />} 
-                  text="เพิ่มจากไดรฟ์" 
-                  onClick={() => {
-                    // TODO: เชื่อมต่อ Google Drive API (stub)
-                    alert('ฟังก์ชันเพิ่มจากไดรฟ์ ยังไม่ได้เชื่อมต่อ');
-                    setOpenPopup(null);
+                  icon={<IoImageOutline size={22} className="text-gray-600" />} 
+                  text="เพิ่มรูปภาพ"
+                  onClick={() => { imageInputRef.current?.click(); setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoCameraOutline size={22} className="text-gray-600" />} 
+                  text="ถ่ายรูป"
+                  onClick={() => { cameraInputRef.current?.click(); setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoMicOutline size={22} className="text-gray-600" />} 
+                  text="บันทึกเสียง"
+                  onClick={() => { toggleRecording(); setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoDocumentTextOutline size={22} className="text-gray-600" />} 
+                  text="สร้างเอกสารใหม่"
+                  onClick={() => { setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoSparklesOutline size={22} className="text-gray-600" />} 
+                  text="ใช้เครื่องมือ AI"
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    togglePopup('tools');
                   }}
                 />
               </div>
             )}
-            <button ref={addBtnRef} onClick={() => togglePopup('add')} className={`text-[#eb6f45f1] cursor-pointer bg-gray-100 p-2 rounded-full hover:bg-gray-200 transition-colors ${openPopup === 'add' ? 'bg-gray-200' : ''}`}>
-              <IoAdd size={22} />
+            <button 
+              ref={addBtnRef}
+              onClick={() => togglePopup('add')} 
+              className={`flex items-center cursor-pointer space-x-2 bg-gray-100 rounded-full px-4 py-2 hover:bg-gray-200 transition-colors ${openPopup === 'add' ? 'bg-gray-200' : ''}`}
+            >
+              <IoAdd size={20} className='text-[#eb6f45f1]' />
+              <span className='text-gray-700 font-medium text-sm'>เพิ่ม</span>
             </button>
-          </div> */}
+          </div>
+          
           {/* 2. ปุ่ม เครื่องมือ และ Popup */}
           <div className="relative">
             {openPopup === 'tools' && (
               <div ref={toolsPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem 
-                  icon={<IoAttachOutline size={22} className="text-gray-600" />} 
-                  text="เพิ่มรูปภาพและไฟล์"
-                  onClick={() => { fileInputRef.current?.click(); setOpenPopup(null); }}
-                />
                 <PopupMenuItem 
                   icon={<IoSearchOutline size={22} className="text-gray-600" />} 
                   text="ค้นหาข้อมูล"
@@ -363,6 +446,41 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
           </div>
         </div>
         <div className='flex items-center space-x-2'>
+          {/* 3. ปุ่ม โมเดล และ Popup */}
+          {/* <div className="relative">
+            {openPopup === 'model' && (
+              <div ref={modelPopupRef} className="absolute bottom-full right-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
+                <PopupMenuItem 
+                  icon={<IoHardwareChipOutline size={22} className="text-gray-600" />} 
+                  text="โมเดลมาตรฐาน"
+                  onClick={() => { setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoSparklesOutline size={22} className="text-gray-600" />} 
+                  text="โมเดลขั้นสูง"
+                  onClick={() => { setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoChatbubblesOutline size={22} className="text-gray-600" />} 
+                  text="โหมดสนทนา"
+                  onClick={() => { setOpenPopup(null); }}
+                />
+                <PopupMenuItem 
+                  icon={<IoLogoGoogle size={22} className="text-gray-600" />} 
+                  text="ค้นหากับ Google"
+                  onClick={() => { setOpenPopup(null); }}
+                />
+              </div>
+            )}
+            <button 
+              ref={modelBtnRef}
+              onClick={() => togglePopup('model')} 
+              className={`flex items-center cursor-pointer space-x-2 bg-gray-100 rounded-full px-4 py-2 hover:bg-gray-200 transition-colors ${openPopup === 'model' ? 'bg-gray-200' : ''}`}
+            >
+              <IoEllipsisVertical size={20} className='text-[#eb6f45f1]' />
+              <span className='text-gray-700 font-medium text-sm'>โมเดล</span>
+            </button>
+          </div> */}
         </div>
       </div>
     </div>

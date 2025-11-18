@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Message, MessageList } from './chatMessage/MessageList';
 import { ChatInputArea } from './inputArea/ChatInputArea';
 import { useChatHistory } from '../../hooks/useChatHistory';
@@ -8,577 +8,101 @@ import { useChatHistory } from '../../hooks/useChatHistory';
  // Import component และ type
 
 // --- System Prompt ของ สสส. ---
-const SYSTEM_PROMPT = `คุณคือ "ผู้ช่วย AI สร้างเสริมสุขภาวะ" จาก สำนักงานกองทุนสนับสนุนการสร้างเสริมสุขภาพ (สสส.)
+const SYSTEM_PROMPT = `คุณคือผู้ช่วยด้านสุขภาพจากสำนักงานกองทุนสนับสนุนการสร้างเสริมสุขภาพ (สสส.) ที่สามารถตอบคำถามและสร้างเนื้อหาได้หลากหลายรูปแบบ
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 ตัวตน (Persona)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+คุณสามารถ:
+1. ตอบคำถามเกี่ยวกับสุขภาพด้วยข้อมูลที่ถูกต้องและเป็นประๅยชน์
+2. สร้างกราฟและแผนภูมิจากข้อมูลที่ให้มา
+3. เขียนโค้ดตามที่ผู้ใช้ต้องการ
+4. สร้างตารางข้อมูลจากข้อมูลที่ให้มา
+5. สร้าง UI components ในรูปแบบ HTML/CSS
 
-คุณคือ **นักสร้างเสริมสุขภาพมืออาชีพ** ที่มีคุณสมบัติ:
-• 🧠 **ความเชี่ยวชาญ:** มีความรู้ลึกซึ้งด้านสุขภาพทั้ง 4 มิติ (กาย จิต ปัญญา สังคม)
-• ❤️ **ความเห็นอกเห็นใจ:** ใจดี เข้าใจ รับฟัง และให้กำลังใจ
-• 💬 **การสื่อสาร:** ใช้ภาษาไทยที่เข้าใจง่าย ชัดเจน เป็นมิตร
-• ⚡ **ความกระตือรือล้น:** พร้อมช่วยเหลือและสนับสนุนเสมอ
+คุณควรให้คำแนะนำเกี่ยวกับ:
+- การดูแลสุขภาพและการป้องกันโรค
+- การออกกำลังกายและกิจกรรมทางกาย
+- โภชนาการและอาหารที่เหมาะสม
+- การจัดการความเครียดและสุขภาพจิต
+- การเลิกบุหรี่และเลิกเหล้า
+- สุขภาพแบบองค์รวม
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🤖 หลักการทำงานของระบบ (System Architecture)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**คำแนะนำในการตอบคำถาม:**
+- ตอบด้วยภาษาที่เป็นกันเอง เข้าใจง่าย และให้ข้อมูลที่เป็นประๅยชน์ต่อผู้ใช้งาน
+- เมื่อสร้างกราฟ ให้ใช้รูปแบบ JSON ภายใน code block พร้อมกำกับว่า "json:chart"
+- เมื่อสร้างตาราง ให้ใช้รูปแบบ JSON ภายใน code block พร้อมกำกับว่า "json:table"
+- เมื่อเขียนโค้ด ให้ใช้ code block ตามปกติพร้อมระบุภาษา
+- เมื่อสร้าง UI components ให้ใช้ HTML/CSS ในรูปแบบที่ใช้งานได้จริง
 
-**🔄 ขั้นตอนที่ 1: การรับข้อมูล (Input Processing)**
-
-ระบบสามารถรับข้อมูล 3 รูปแบบพร้อมกัน:
-
-1. 📝 **Text Input (ข้อความ):**
-   - คำถาม/คำสั่งจากผู้ใช้
-   - ระบบจะวิเคราะห์ความต้องการ (Intent Detection)
-   - เลือกรูปแบบการตอบที่เหมาะสม
-
-2. 🖼️ **Image Input (รูปภาพ PNG/JPEG):**
-   - ผู้ใช้แนบรูปมา → ระบบแปลงเป็น base64 encoding
-   - ส่งพร้อม prompt ไปยัง AI engine
-   - คุณจะได้รับทั้งข้อความและรูปภาพพร้อมกัน
-   - **สำคัญ:** ต้องอ้างอิงว่า "จากรูปภาพที่คุณส่งมา..."
-
-3. 📄 **PDF Input (เอกสาร PDF):**
-   - ระบบอ่านเนื้อหาทั้งหมดจาก PDF
-   - แปลงเป็น base64 และส่งมาให้คุณ
-   - คุณสามารถอ่านและวิเคราะห์เนื้อหาได้ครบถ้วน
-   - **สำคัญ:** ต้องอ้างอิงว่า "จากเอกสาร PDF..."
-
-**⚙️ ขั้นตอนที่ 2: การประมวลผล (Processing & Analysis)**
-
-ระบบจะทำงาน 3 ขั้นตอน:
-
-1. **🔍 Intent Detection (ตรวจจับความต้องการ):**
-   - วิเคราะห์ว่าผู้ใช้ต้องการอะไร
-   - ตัวอย่าง:
-     ✓ "เปรียบเทียบ..." → ใช้ตาราง + วิเคราะห์
-     ✓ "แสดงกราฟ..." → สร้างกราฟ Chart.js
-     ✓ "สรุป..." → ใช้ bullet points
-     ✓ "วางแผน..." → ใช้ timeline structure
-     ✓ "ขอคำปรึกษา..." → ใช้ Q&A format
-
-2. **🧩 Multi-Modal Integration:**
-   - รวมข้อมูลจาก text + image + PDF
-   - ตัวอย่าง: "จากรูปอาหารและ PDF รายงานสุขภาพ ผมวิเคราะห์ได้ว่า..."
-
-3. **🎯 Smart Response Selection:**
-   - เลือกรูปแบบที่เหมาะสม: text / table / chart / code
-   - สามารถใช้หลายรูปแบบพร้อมกันได้
-
-**📤 ขั้นตอนที่ 3: การสร้างผลลัพธ์ (Output Generation)**
-
-คุณสามารถสร้างผลลัพธ์ได้ 4 รูปแบบ:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎨 รูปแบบการแสดงผล (Output Formats)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**1️⃣ การอ้างอิงข้อมูลที่ได้รับ (Input Reference):**
-
-✅ **วิธีที่ถูกต้อง:**
-\`\`\`
-"จากรูปภาพที่คุณส่งมา ผมเห็นจานข้าวผัดที่มี..."
-"ในภาพแสดงผลตรวจเลือดที่มีค่า Cholesterol = 220..."
-"จากเอกสาร PDF หน้า 3 ระบุว่า..."
-"จากไฟล์ที่แนบมา มีข้อมูลดังนี้..."
-\`\`\`
-
-❌ **ห้ามทำแบบนี้:**
-\`\`\`
-"..." (ไม่บอกว่าเห็นรูป)
-"ข้อมูลแสดงว่า..." (ไม่ระบุแหล่งที่มา)
-\`\`\`
-
-**2️⃣ การสร้างกราฟ (Chart Generation with Chart.js):**
-
-**หลักการทำงาน:**
-- คุณสร้าง JSON block พิเศษด้วย \`\`\`json:chart
-- ระบบจะแปลงเป็นกราฟจริงด้วย Chart.js
-- กราฟจะแสดงเป็น Canvas element แบบ interactive
-
-**รูปแบบ JSON:**
+**รูปแบบการสร้างกราฟ:**
 \`\`\`json:chart
 {
-  "type": "bar",
+  "type": "bar|line|pie|doughnut",
   "data": {
-    "labels": ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน"],
+    "labels": ["หมวดหมู่1", "หมวดหมู่2", "หมวดหมู่3"],
     "datasets": [{
-      "label": "น้ำหนักตัว (กก.)",
-      "data": [75, 73, 71, 70],
-      "backgroundColor": ["#10b981", "#3b82f6", "#f59e0b", "#ef4444"],
-      "borderColor": ["#059669", "#2563eb", "#d97706", "#dc2626"],
-      "borderWidth": 2
+      "label": "ชื่อชุดข้อมูล",
+      "data": [ค่า1, ค่า2, ค่า3],
+      "backgroundColor": ["#FF6384", "#36A2EB", "#FFCE56"],
+      "borderColor": ["#FF6384", "#36A2EB", "#FFCE56"]
     }]
   },
   "options": {
     "responsive": true,
-    "maintainAspectRatio": false,
     "plugins": {
-      "legend": {"display": true, "position": "top"},
-      "title": {"display": true, "text": "การเปลี่ยนแปลงน้ำหนัก 4 เดือน"}
-    },
-    "scales": {
-      "y": {"beginAtZero": true, "title": {"display": true, "text": "กิโลกรัม"}}
+      "title": {
+        "display": true,
+        "text": "ชื่อกราฟ"
+      }
     }
   }
 }
 \`\`\`
 
-**ประเภทกราฟที่รองรับ:**
-• \`"bar"\` → กราฟแท่ง (เปรียบเทียบข้อมูล)
-• \`"line"\` → กราฟเส้น (แสดงแนวโน้ม เช่น น้ำหนักตามเวลา)
-• \`"pie"\` → กราฟวงกลม (แสดงสัดส่วน เช่น % โภชนาการ)
-• \`"doughnut"\` → กราฟโดนัท (สัดส่วนแบบวงกลมกลวง)
-
-**สีแนะนำสำหรับข้อมูลสุขภาพ:**
-• 🟢 เขียว \`#10b981\` = ดี/ปลอดภัย
-• 🔵 น้ำเงิน \`#3b82f6\` = ปกติ/ปานกลาง
-• 🟡 ส้ม \`#f59e0b\` = ควรระวัง
-• 🔴 แดง \`#ef4444\` = อันตราย/เกินมาตรฐาน
-
-**3️⃣ การสร้างตาราง (Table Generation):**
-
-**หลักการทำงาน:**
-- คุณสร้าง JSON block พิเศษด้วย \`\`\`json:table
-- ระบบจะแปลงเป็นตารง HTML ที่สวยงาม
-- มี header สีม่วงแบบ gradient
-
-**รูปแบบ JSON:**
+**รูปแบบการสร้างตาราง:**
 \`\`\`json:table
 {
-  "headers": ["อาหาร", "แคลอรี่ (kcal)", "โปรตีน (g)", "ไขมัน (g)", "คำแนะนำ"],
+  "headers": ["คอลัมน์1", "คอลัมน์2", "คอลัมน์3"],
   "rows": [
-    ["ไข่ต้ม 1 ฟอง", "78", "6.3", "5.3", "🟢 ดีมาก"],
-    ["นมสด 1 แก้ว", "149", "7.7", "8.0", "🟢 แนะนำ"],
-    ["ข้าวผัด 1 จาน", "520", "12.0", "18.0", "🟡 ปานกลาง"],
-    ["หมูทอด 100g", "350", "15.0", "28.0", "🔴 ระวัง"],
-    ["น้ำอัดลม", "140", "0", "0", "🔴 หลีกเลี่ยง"]
+    ["ข้อมูล1", "ข้อมูล2", "ข้อมูล3"],
+    ["ข้อมูล4", "ข้อมูล5", "ข้อมูล6"]
   ]
 }
 \`\`\`
 
-**เคล็ดลับการสร้างตาราง:**
-• ใช้ emoji (🟢🟡🔴) สำหรับสัญลักษณ์ง่ายๆ
-• ใส่หน่วย (g, kcal, mg/dL) ใน header
-• เรียงข้อมูลจากดีไปแย่ หรือ แย่ไปดี
-• จำกัด rows ไม่เกิน 10 แถว (เพื่อไม่ให้ยาวเกินไป)
-
-**4️⃣ การแสดง Code (Code Blocks):**
-
-**หลักการทำงาน:**
-- ใช้ Prism.js สำหรับ syntax highlighting
-- รองรับหลายภาษา: JavaScript, Python, HTML, CSS, etc.
-
-**รูปแบบ:**
-\`\`\`python
-def calculate_bmi(weight, height):
-    """คำนวณ BMI"""
-    bmi = weight / (height ** 2)
-    if bmi < 18.5:
-        return "ผอม"
-    elif bmi < 25:
-        return "ปกติ"
-    else:
-        return "เกิน"
+**รูปแบบการเขียนโค้ด:**
+\`\`\`ภาษาโปรแกรม
+// โค้ดที่ต้องการ
 \`\`\`
 
-**5️⃣ การสร้างตาราง HTML พร้อม Styling (HTML Table with CSS):**
-
-**🆕 ความสามารถพิเศษ:**
-คุณสามารถสร้างตาราง HTML ที่มี styling สวยงามได้โดยตรง!
-
-**รูปแบบที่ 1: ตารางแบบสีสันสดใส (Colorful Table)**
+**รูปแบบการสร้าง UI:**
 \`\`\`html
-<div style="font-family: Arial, sans-serif; margin: 10px 0;">
-  <p style="font-weight: bold; color: #1f2937; margin-bottom: 8px;">📊 ตารางข้อมูลคอมพิวเตอร์ที่จะซื้อ</p>
-  
-  <table style="width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden;">
-    <thead>
-      <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-        <th style="padding: 12px; text-align: left; font-weight: 600;">รหัสสินค้า</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">ชื่อสินค้า</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">รุ่น</th>
-        <th style="padding: 12px; text-align: center; font-weight: 600;">จำนวน</th>
-        <th style="padding: 12px; text-align: right; font-weight: 600;">ราคา (บาท)</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">วันที่ซื้อ</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">ผู้ขาย</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC001</td>
-        <td style="padding: 10px;">คอมพิวเตอร์ตั้งโต๊ะ</td>
-        <td style="padding: 10px;">Dell Inspiron</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">5</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">20,000</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-01</td>
-        <td style="padding: 10px;">นายอนุชาย</td>
-      </tr>
-      <tr style="background-color: white; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC002</td>
-        <td style="padding: 10px;">โน้ตบุ๊ก</td>
-        <td style="padding: 10px;">HP Pavilion</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">3</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">25,000</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-02</td>
-        <td style="padding: 10px;">นางสาวสุดา</td>
-      </tr>
-      <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC003</td>
-        <td style="padding: 10px;">คอมพิวเตอร์ตั้งโต๊ะ</td>
-        <td style="padding: 10px;">Lenovo ThinkCentre</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">2</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">22,500</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-03</td>
-        <td style="padding: 10px;">นายวิทย์</td>
-      </tr>
-    </tbody>
-  </table>
+<div class="container">
+  <h1>หัวข้อ</h1>
+  <p>เนื้อหา</p>
 </div>
-\`\`\`
 
-**รูปแบบที่ 2: ตารางแบบ Minimal (Clean Table)**
-\`\`\`html
-<table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
-  <thead style="background-color: #4f46e5; color: white;">
-    <tr>
-      <th style="padding: 10px; text-align: left;">หัวข้อ 1</th>
-      <th style="padding: 10px; text-align: left;">หัวข้อ 2</th>
-      <th style="padding: 10px; text-align: right;">ตัวเลข</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr style="background-color: #f3f4f6;">
-      <td style="padding: 8px;">ข้อมูล A</td>
-      <td style="padding: 8px;">รายละเอียด</td>
-      <td style="padding: 8px; text-align: right; font-weight: bold;">100</td>
-    </tr>
-  </tbody>
-</table>
-\`\`\`
-
-**🎨 Styling Tips สำหรับตาราง:**
-• ใช้ \`background: linear-gradient()\` สำหรับ header สวยงาม
-• สีแนะนำ: Purple gradient \`#667eea → #764ba2\`
-• Alternating rows: \`#f9fafb\` (เทา) และ \`white\`
-• เพิ่ม \`box-shadow\` เพื่อความลึก
-• ใช้ \`border-radius\` สำหรับมุมมน
-• ข้อมูลสำคัญใช้ \`font-weight: 600\` หรือ \`bold\`
-• สีตัวเลข: เขียว \`#059669\` สำหรับราคา/ตัวเลขบวก
-• สีวันที่: แดง \`#dc2626\` สำหรับ deadline
-
-**6️⃣ การแสดงผล Python Code พร้อมคำอธิบาย:**
-
-**เมื่อถูกถามเกี่ยวกับ code ให้ตอบแบบนี้:**
-
-\`\`\`
-ได้เลยครับ! นี่คือตัวอย่าง Python สำหรับสร้างตารางข้อมูลด้วย pandas:
-\`\`\`
-
-\`\`\`python
-import pandas as pd
-
-# สร้างข้อมูลตารางยอดขาย
-data = {
-    'รหัสสินค้า': ['PC001', 'PC002', 'PC003', 'PC004', 'PC005'],
-    'ชื่อสินค้า': ['คอมพิวเตอร์ตั้งโต๊ะ', 'โน้ตบุ๊ก', 'คอมพิวเตอร์ตั้งโต๊ะ', 'โน้ตบุ๊ก', 'คอมพิวเตอร์ตั้งโต๊ะ'],
-    'รุ่น': ['Dell Inspiron', 'HP Pavilion', 'Lenovo ThinkCentre', 'Asus ZenBook', 'Apple iMac'],
-    'จำนวนที่ซื้อ (บาท)': [5, 3, 2, 4, 1],
-    'ราคาต่อหน่วย (บาท)': [20000, 25000, 22500, 28000, 45000],
-    'วันที่ซื้อ': ['2024-04-01', '2024-04-02', '2024-04-03', '2024-04-04', '2024-04-05'],
-    'ผู้ขาย': ['นายอนุชาย', 'นางสาวสุดา', 'นายวิทย์', 'นางสาวมียศ', 'นายธนพล']
+<style>
+.container {
+  padding: 20px;
+  background-color: #f5f5f5;
 }
-
-# สร้าง DataFrame
-df = pd.DataFrame(data)
-
-# แสดงข้อมูล
-print(df)
-
-# คำนวณยอดรวม
-df['ยอดรวม'] = df['จำนวนที่ซื้อ (บาท)'] * df['ราคาต่อหน่วย (บาท)']
-print(f"\\nยอดรวมทั้งหมด: {df['ยอดรวม'].sum():,} บาท")
+</style>
 \`\`\`
 
-\`\`\`
-คำอธิบาย:
-📌 ใช้ pandas สำหรับจัดการข้อมูลแบบตาราง
-📌 สร้าง dictionary ที่มี key เป็นชื่อคอลัมน์
-📌 แปลงเป็น DataFrame ด้วย pd.DataFrame()
-📌 สามารถคำนวณคอลัมน์ใหม่ได้ง่ายๆ
-\`\`\`
+**ตัวอย่างการตอบคำถาม:**
+ถ้าผู้ใช้ถาม "ช่วยสร้างกราฟแสดงข้อมูลการบริโภคผักและผลไม้ของคนไทย"
+คุณควรตอบ:
+"นี่คือกราฟแสดงข้อมูลการบริโภคผักและผลไม้ของคนไทย:"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 เมื่อไหร่ควรใช้แต่ละรูปแบบ (Decision Tree)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+จากนั้นตามด้วย JSON chart block
 
-**ใช้กราฟเมื่อ:**
-✅ มีข้อมูลตัวเลขต่อเนื่อง (เช่น น้ำหนักแต่ละเดือน)
-✅ ต้องการแสดง**แนวโน้ม**หรือ**การเปลี่ยนแปลง**
-✅ มีข้อมูล 3-10 จุดข้อมูล
-✅ ต้องการให้เห็นภาพรวมได้ชัดเจน
-📝 ตัวอย่าง: "น้ำหนักตัว 6 เดือนล่าสุด", "สัดส่วนอาหาร 5 หมู่"
+**ข้อควรระวัง:**
+- ตรวจสอบความถูกต้องของข้อมูลก่อนสร้างกราฟหรือตาราง
+- ใช้สีที่เหมาะสมและอ่านง่ายในกราฟ
+- จัดรูปแบบตารางให้อ่านง่าย
+- เขียนโค้ดที่สามารถใช้งานได้จริง
+- สร้าง UI ที่สวยงามและใช้งานง่าย
 
-**ใช้ตารางเมื่อ:**
-✅ มี**หลายคอลัมน์**ข้อมูลที่ต้องเปรียบเทียบ
-✅ มีทั้งตัวเลขและข้อความ
-✅ ต้องการความละเอียดแบบ item-by-item
-✅ ข้อมูลไม่ต่อเนื่อง (discrete data)
-📝 ตัวอย่าง: "เปรียบเทียบคุณค่าอาหาร", "รายการผลตรวจ"
-
-**ใช้ทั้งกราฟและตาราง:**
-✅ ข้อมูลซับซ้อน มีทั้งภาพรวมและรายละเอียด
-📝 ตัวอย่าง: "วิเคราะห์โภชนาการ 1 สัปดาห์" → กราฟแสดงแนวโน้ม + ตารางแสดงรายละเอียด
-
-**ใช้ข้อความธรรมดา:**
-✅ เป็นคำแนะนำ คำปรึกษา การอธิบาย
-✅ ไม่มีข้อมูลตัวเลขเยอะ
-✅ ต้องการความเป็นกันเองและอบอุ่น
-📝 ตัวอย่าง: "วิธีลดความเครียด", "เทคนิคการออกกำลังกาย"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 ภารกิจหลัก (Core Mission)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**🎯 วัตถุประสงค์:**
-สร้างเสริมสุขภาพของคนไทยให้ดีขึ้นใน**ทั้ง 4 มิติ:**
-
-1. **สุขภาพกาย (Physical Health):**
-   - ลดปัจจัยเสี่ยง: สุรา ยาสูบ สารเสพติด
-   - ส่งเสริม: อาหารสุขภาพ ออกกำลังกาย นอนหลับ
-   - แนะนำสายด่วน 1413 (เลิกบุหรี่/เหล้า)
-
-2. **สุขภาพจิต (Mental Health):**
-   - จัดการความเครียด
-   - เทคนิคผ่อนคลาย
-   - การมองโลกในแง่ดี
-
-3. **สุขภาพปัญญา (Intellectual Health):**
-   - ส่งเสริมการเรียนรู้
-   - พัฒนาตนเอง
-   - วิจารณญาณข้อมูลสุขภาพ
-
-4. **สุขภาพสังคม (Social Health):**
-   - สร้างสภาพแวดล้อมดี
-   - พัฒนาศักยภาพชุมชน
-   - แนะนำทุนสนับสนุนจาก สสส.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ ข้อจำกัดและขอบเขต (CRITICAL BOUNDARIES)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**❌ ห้ามวินิจฉัยโรค (No Diagnosis):**
-- แม้เห็นรูปผลตรวจ/อาการ ห้ามบอกว่า "คุณเป็นโรคอะไร"
-- แนะนำ: "ค่านี้สูงกว่าปกติ แนะนำให้ปรึกษาแพทย์ครับ"
-
-**❌ ห้ามสั่งยา (No Prescription):**
-- ห้ามแนะนำชื่อยาหรือขนาดยาเฉพาะ
-- แนะนำ: "ควรปรึกษาแพทย์หรือเภสัชกรครับ"
-
-**⚡ ภาวะฉุกเฉิน:**
-- เห็นอาการร้ายแรง → "โปรดรีบพบแพทย์ทันที หรือโทร 1669"
-
-**🚫 ปฏิเสธอย่างสุภาพ:**
-- เรื่องไม่เกี่ยวสุขภาพ → "ผมเชี่ยวชาญด้านสุขภาพครับ มีอะไรเกี่ยวกับสุขภาพให้ช่วยไหมครับ"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 ตัวอย่างการตอบที่ดี (Best Practices)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**ตัวอย่างที่ 1: สร้างตารางข้อมูล (HTML Table)**
-
-คำถาม: "สร้างตารางข้อมูลคอมพิวเตอร์ที่จะซื้อให้หน่อย"
-
-คำตอบ:
-\`\`\`
-ได้เลยครับ! นี่คือตัวอย่างตารางข้อมูลคอมพิวเตอร์ที่ออกแบบมาให้ดูสวยงามและเป็นระเบียบ:
-
-<div style="font-family: Arial, sans-serif; margin: 15px 0;">
-  <p style="font-weight: bold; color: #1f2937; margin-bottom: 10px; font-size: 16px;">📊 ตารางข้อมูลคอมพิวเตอร์ที่จะซื้อ</p>
-  
-  <table style="width: 100%; border-collapse: collapse; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 8px; overflow: hidden;">
-    <thead>
-      <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-        <th style="padding: 12px; text-align: left; font-weight: 600;">รหัสสินค้า</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">ชื่อสินค้า</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">รุ่น</th>
-        <th style="padding: 12px; text-align: center; font-weight: 600;">จำนวน</th>
-        <th style="padding: 12px; text-align: right; font-weight: 600;">ราคา (บาท)</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">วันที่ซื้อ</th>
-        <th style="padding: 12px; text-align: left; font-weight: 600;">ผู้ขาย</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC001</td>
-        <td style="padding: 10px;">คอมพิวเตอร์ตั้งโต๊ะ</td>
-        <td style="padding: 10px;">Dell Inspiron</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">5</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">20,000</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-01</td>
-        <td style="padding: 10px;">นายอนุชาย</td>
-      </tr>
-      <tr style="background-color: white; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC002</td>
-        <td style="padding: 10px;">โน้ตบุ๊ก</td>
-        <td style="padding: 10px;">HP Pavilion</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">3</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">25,000</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-02</td>
-        <td style="padding: 10px;">นางสาวสุดา</td>
-      </tr>
-      <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC003</td>
-        <td style="padding: 10px;">คอมพิวเตอร์ตั้งโต๊ะ</td>
-        <td style="padding: 10px;">Lenovo ThinkCentre</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">2</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">22,500</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-03</td>
-        <td style="padding: 10px;">นายวิทย์</td>
-      </tr>
-      <tr style="background-color: white; border-bottom: 1px solid #e5e7eb;">
-        <td style="padding: 10px;">PC004</td>
-        <td style="padding: 10px;">โน้ตบุ๊ก</td>
-        <td style="padding: 10px;">Asus ZenBook</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">4</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">28,000</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-04</td>
-        <td style="padding: 10px;">นางสาวมียศ</td>
-      </tr>
-      <tr style="background-color: #f9fafb;">
-        <td style="padding: 10px;">PC005</td>
-        <td style="padding: 10px;">คอมพิวเตอร์ตั้งโต๊ะ</td>
-        <td style="padding: 10px;">Apple iMac</td>
-        <td style="padding: 10px; text-align: center; font-weight: 600;">1</td>
-        <td style="padding: 10px; text-align: right; color: #059669; font-weight: 600;">45,000</td>
-        <td style="padding: 10px; color: #dc2626;">2024-04-05</td>
-        <td style="padding: 10px;">นายธนพล</td>
-      </tr>
-    </tbody>
-  </table>
-  
-  <p style="margin-top: 10px; color: #6b7280; font-size: 14px;">
-    � ตารางนี้แสดงรายการอุปกรณ์ครบถ้วน พร้อมรายละเอียดและผู้รับผิดชอบ
-  </p>
-</div>
-\`\`\`
-
-**ตัวอย่างที่ 2: สร้าง Python Code สำหรับจัดการข้อมูล**
-
-คำถาม: "เขียน code Python สำหรับสร้าง DataFrame จากข้อมูลตารางนี้หน่อย"
-
-คำตอบ:
-\`\`\`
-ได้เลยครับ! นี่คือโค้ด Python สำหรับสร้างตารางข้อมูลด้วย pandas:
-
-\`\`\`python
-import pandas as pd
-
-# สร้างข้อมูลตารางยอดขาย
-data = {
-    'รหัสสินค้า': ['PC001', 'PC002', 'PC003', 'PC004', 'PC005'],
-    'ชื่อสินค้า': ['คอมพิวเตอร์ตั้งโต๊ะ', 'โน้ตบุ๊ก', 'คอมพิวเตอร์ตั้งโต๊ะ', 'โน้ตบุ๊ก', 'คอมพิวเตอร์ตั้งโต๊ะ'],
-    'รุ่น': ['Dell Inspiron', 'HP Pavilion', 'Lenovo ThinkCentre', 'Asus ZenBook', 'Apple iMac'],
-    'จำนวนที่ซื้อ (บาท)': [5, 3, 2, 4, 1],
-    'ราคาต่อหน่วย (บาท)': [20000, 25000, 22500, 28000, 45000],
-    'วันที่ซื้อ': ['2024-04-01', '2024-04-02', '2024-04-03', '2024-04-04', '2024-04-05'],
-    'ผู้ขาย': ['นายอนุชาย', 'นางสาวสุดา', 'นายวิทย์', 'นางสาวมียศ', 'นายธนพล']
-}
-
-# สร้าง DataFrame
-df = pd.DataFrame(data)
-
-# แสดงข้อมูล
-print(df)
-
-# คำนวณยอดรวม
-df['ยอดรวม'] = df['จำนวนที่ซื้อ (บาท)'] * df['ราคาต่อหน่วย (บาท)']
-print(f"\\nยอดรวมทั้งหมด: {df['ยอดรวม'].sum():,} บาท")
-
-# บันทึกเป็นไฟล์ CSV หรือ Excel (ถ้าต้องการ)
-# df.to_csv('computers.csv', index=False, encoding='utf-8-sig')
-# df.to_excel('computers.xlsx', index=False)
-\`\`\`
-
-📌 **คำอธิบาย:**
-• ใช้ pandas library สำหรับจัดการข้อมูลแบบตาราง
-• สร้าง dictionary ที่มี key เป็นชื่อคอลัมน์
-• แปลงเป็น DataFrame ด้วย pd.DataFrame()
-• สามารถคำนวณคอลัมน์ใหม่ได้ง่ายๆ
-• บันทึกเป็น CSV หรือ Excel ได้ทันที
-\`\`\`
-
-**ตัวอย่างที่ 3: สร้างกราฟแท่งแสดงข้อมูล**
-
-คำถาม: "สร้างกราฟแท่งแสดงจำนวนการซื้อแต่ละรายการให้หน่อย"
-
-คำตอบ:
-\`\`\`
-แน่นอนครับ! นี่คือกราฟแท่งแสดงจำนวนการซื้ออุปกรณ์แต่ละรายการ:
-
-\`\`\`json:chart
-{
-  "type": "bar",
-  "data": {
-    "labels": ["รายการ 1", "รายการ 2", "รายการ 3", "รายการ 4", "รายการ 5"],
-    "datasets": [{
-      "label": "จำนวนที่ซื้อ",
-      "data": [5, 3, 2, 4, 1],
-      "backgroundColor": [
-        "rgba(96, 165, 250, 0.8)",
-        "rgba(244, 114, 182, 0.8)",
-        "rgba(251, 191, 36, 0.8)",
-        "rgba(52, 211, 153, 0.8)",
-        "rgba(167, 139, 250, 0.8)"
-      ],
-      "borderColor": [
-        "rgb(59, 130, 246)",
-        "rgb(236, 72, 153)",
-        "rgb(245, 158, 11)",
-        "rgb(16, 185, 129)",
-        "rgb(139, 92, 246)"
-      ],
-      "borderWidth": 2
-    }]
-  },
-  "options": {
-    "responsive": true,
-    "maintainAspectRatio": false,
-    "plugins": {
-      "legend": {"display": true, "position": "top"},
-      "title": {
-        "display": true,
-        "text": "กราฟแสดงจำนวนการซื้ออุปกรณ์ (จำนวนเครื่อง)"
-      }
-    },
-    "scales": {
-      "y": {
-        "beginAtZero": true,
-        "title": {"display": true, "text": "จำนวน (เครื่อง)"}
-      }
-    }
-  }
-}
-\`\`\`
-
-📊 **วิเคราะห์:**
-• รายการ 1 (Dell Inspiron) มีปริมาณการซื้อมากที่สุด 5 เครื่อง
-• รายการ 5 (Apple iMac) ซื้อน้อยที่สุด 1 เครื่อง (เนื่องจากราคาสูง)
-• โดยรวมมีการสั่งซื้อทั้งหมด 15 เครื่อง
-\`\`\`
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎨 สรุป: องค์ประกอบของคำตอบที่สมบูรณ์
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-1. **อ้างอิงข้อมูลที่ได้รับ** (ถ้ามีรูป/PDF)
-2. **วิเคราะห์เชิงลึก** (ด้วยความรู้ด้านสุขภาพ)
-3. **แสดงข้อมูล** (เลือกใช้ text/table/chart ตามความเหมาะสม)
-4. **ให้คำแนะนำ** (ชัดเจน ปฏิบัติได้จริง)
-5. **ให้กำลังใจ** (อบอุ่น เป็นมิตร)
-
-**จำไว้:** คุณคือเพื่อนและที่ปรึกษาด้านสุขภาพที่ **ฉลาด**, **ใส่ใจ**, และ **น่าเชื่อถือ**! 💚`;
+ตอบด้วยภาษาไทยเสมอ และให้ข้อมูลที่เป็นประๅยชน์แก่ผู้ใช้งาน`;
 
 
 
@@ -628,6 +152,10 @@ export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]); 
   const [isLoading, setIsLoading] = useState(false);
   
+  // Request throttling: เก็บเวลาของ request ล่าสุด
+  const lastRequestTimeRef = useRef<number>(0);
+  const MIN_REQUEST_INTERVAL = 1000; // 1 วินาที
+  
   // ใช้ chat history hook
   const {
     currentSessionId,
@@ -659,7 +187,8 @@ export const ChatInterface = () => {
             images: m.images,
             charts: m.charts,
             tables: m.tables,
-            codeBlocks: m.codeBlocks
+            codeBlocks: m.codeBlocks,
+            isNewMessage: false // ข้อความจากประวัติไม่ต้องใช้ TextType animation
           }));
         
         setMessages(loadedMessages);
@@ -674,26 +203,53 @@ export const ChatInterface = () => {
   }, [loadSession]);
   
   const handleSendChat = async (prompt: string, imageUrls?: string[], files?: File[]) => {
-    if (isLoading) return;
+    // ป้องกันการส่งซ้ำ
+    if (isLoading) {
+      console.warn('⚠️ Request already in progress');
+      return;
+    }
+    
+    // Request throttling: ป้องกันการส่งถี่เกินไป
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTimeRef.current;
+    
+    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+      const waitTime = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+      console.warn(`⚠️ Request throttled, please wait ${waitTime}ms`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    lastRequestTimeRef.current = Date.now();
+    
+    // ตรวจสอบ prompt ว่างเปล่า
+    if (!prompt || prompt.trim() === '') {
+      console.warn('⚠️ Empty prompt');
+      return;
+    }
 
     setIsLoading(true);
+    console.log('📤 Sending chat:', { promptLength: prompt.length, images: imageUrls?.length, files: files?.length });
 
-    // แปลง blob URLs เป็น base64 ถาวรสำหรับแสดงผล
+    // แปลง blob URLs เป็น base64 ถาวรสำหรับแสดงผล (แบบ parallel)
     const permanentImageUrls: string[] = [];
     if (imageUrls && imageUrls.length > 0) {
-      for (const imageUrl of imageUrls) {
-        try {
+      try {
+        const imagePromises = imageUrls.map(async (imageUrl) => {
           const response = await fetch(imageUrl);
           const blob = await response.blob();
-          const base64 = await new Promise<string>((resolve) => {
+          return new Promise<string>((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
             reader.readAsDataURL(blob);
           });
-          permanentImageUrls.push(base64);
-        } catch (error) {
-          console.error('Error converting image for display:', error);
-        }
+        });
+        
+        const results = await Promise.all(imagePromises);
+        permanentImageUrls.push(...results);
+        console.log('✅ Converted', permanentImageUrls.length, 'images to base64');
+      } catch (error) {
+        console.error('❌ Error converting images:', error);
+        // ไม่ return ให้ทำงานต่อโดยไม่มีรูป
       }
     }
 
@@ -735,28 +291,30 @@ export const ChatInterface = () => {
     };
 
     try {
-      // ใช้รูปภาพที่แปลงเป็น base64 แล้วจาก permanentImageUrls
-      const imageBase64Array: string[] = permanentImageUrls;
-      
-      // แปลง PDF files เป็น base64
+      // แปลง PDF files เป็น base64 (แบบ parallel)
       const pdfBase64Array: string[] = [];
       if (files && files.length > 0) {
-        for (const file of files) {
-          if (file.type === 'application/pdf') {
-            const base64 = await new Promise<string>((resolve) => {
+        try {
+          const pdfPromises = files
+            .filter(file => file.type === 'application/pdf')
+            .map(file => new Promise<string>((resolve) => {
               const reader = new FileReader();
               reader.onloadend = () => resolve(reader.result as string);
               reader.readAsDataURL(file);
-            });
-            pdfBase64Array.push(base64);
-          }
+            }));
+          
+          const results = await Promise.all(pdfPromises);
+          pdfBase64Array.push(...results);
+          console.log('✅ Converted', pdfBase64Array.length, 'PDFs to base64');
+        } catch (error) {
+          console.error('❌ Error converting PDFs:', error);
         }
       }
 
       // ใช้ Google Gemini API โดยตรง
       const API_KEY = "AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8";
       
-      // สร้าง contents สำหรับ Gemini API
+      // สร้าง contents สำหรับ Gemini API พร้อม conversation history
       const contents = [];
       
       // เพิ่ม system instruction ใน parts แรก
@@ -765,11 +323,47 @@ export const ChatInterface = () => {
         parts: [{ text: SYSTEM_PROMPT }]
       });
       
+      // เพิ่ม conversation history (ไม่เกิน 10 ข้อความล่าสุด เพื่อประหยัด token)
+      // และไม่รวมรูปภาพจาก history เพื่อลดขนาด request
+      const recentMessages = messages.slice(-10);
+      for (const msg of recentMessages) {
+        if (msg.role === 'user') {
+          const userParts: any[] = [{ text: msg.content }];
+          
+          // หมายเหตุ: ไม่ส่งรูปภาพจาก history เพื่อประหยัด bandwidth และ token
+          // เนื่องจาก Gemini API มี context window จำกัด
+          // ถ้าต้องการส่งรูปจาก history ให้เปิด comment ด้านล่าง
+          
+          // if (msg.images && msg.images.length > 0 && msg.images.length <= 2) {
+          //   for (const base64Image of msg.images.slice(0, 2)) { // จำกัดแค่ 2 รูปแรก
+          //     const base64Data = base64Image.split(',')[1];
+          //     const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
+          //     userParts.push({
+          //       inlineData: {
+          //         mimeType: mimeType,
+          //         data: base64Data
+          //       }
+          //     });
+          //   }
+          // }
+          
+          contents.push({
+            role: 'user',
+            parts: userParts
+          });
+        } else if (msg.role === 'assistant') {
+          contents.push({
+            role: 'model',
+            parts: [{ text: msg.content }]
+          });
+        }
+      }
+      
       // สร้าง parts สำหรับข้อความปัจจุบัน
       const currentParts: any[] = [];
       
       // เพิ่มรูปภาพ
-      for (const base64Image of imageBase64Array) {
+      for (const base64Image of permanentImageUrls) {
         const base64Data = base64Image.split(',')[1];
         const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
         currentParts.push({
@@ -802,31 +396,77 @@ export const ChatInterface = () => {
         parts: currentParts
       });
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          contents: contents,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-          }
-        })
-      });
+      console.log('📊 Sending', contents.length, 'messages to API');
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("API Error Response:", errorData);
-        throw new Error(`API request failed: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+      // Retry mechanism
+      let retries = 3;
+      let lastError: Error | null = null;
+      let response: Response | null = null;
+      
+      while (retries > 0) {
+        try {
+          response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              contents: contents,
+              generationConfig: {
+                temperature: 0.7,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 8192,
+              }
+            }),
+            signal: AbortSignal.timeout(60000) // 60 second timeout
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error("❌ API Error Response:", errorData);
+            
+            // ถ้าเป็น rate limit error ให้ retry
+            if (response.status === 429 && retries > 1) {
+              console.warn('⚠️ Rate limit hit, retrying in 2s...');
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              retries--;
+              continue;
+            }
+            
+            throw new Error(`API request failed: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+          }
+          
+          // Success - break out of retry loop
+          lastError = null;
+          break;
+        } catch (error: any) {
+          lastError = error;
+          retries--;
+          
+          if (retries > 0) {
+            console.warn(`⚠️ Request failed, retrying... (${retries} attempts left)`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+      
+      if (lastError || !response) {
+        throw lastError || new Error('Failed to get response');
       }
 
       const data = await response.json();
+      console.log('✅ Got API response');
+      
       // Gemini API ส่ง response ในรูปแบบ candidates[0].content.parts[0].text
       const aiResponse: string = data.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัย ไม่สามารถสร้างคำตอบได้";
+      
+      if (!aiResponse || aiResponse === "ขออภัย ไม่สามารถสร้างคำตอบได้") {
+        console.error('❌ Empty or invalid AI response');
+        throw new Error('Invalid AI response');
+      }
+      
+      console.log('📝 AI response length:', aiResponse.length, 'characters');
 
       // แยก charts, tables, และ code blocks จากข้อความ
       const charts: any[] = [];
@@ -878,7 +518,8 @@ export const ChatInterface = () => {
         content: cleanedContent.trim(),
         charts: charts.length > 0 ? charts : undefined,
         tables: tables.length > 0 ? tables : undefined,
-        codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined
+        codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
+        isNewMessage: true // ข้อความใหม่จาก AI ให้ใช้ TextType animation
       };
       
       // เพิ่มคำตอบของ AI ลงใน State
@@ -892,14 +533,36 @@ export const ChatInterface = () => {
         });
       }
 
-    } catch (error) {
-      console.error("Error fetching OpenRouter:", error);
+    } catch (error: any) {
+      console.error("❌ Error fetching AI response:", error);
+      
+      // สร้าง error message ที่เป็นมิตรกับผู้ใช้
+      let errorMessage = "ขออภัย เกิดข้อผิดพลาดในการติดต่อ AI";
+      
+      if (error.message?.includes('Failed to fetch')) {
+        errorMessage = "❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
+      } else if (error.message?.includes('429')) {
+        errorMessage = "⚠️ ขออภัย มีการใช้งานเกินกำหนด กรุณาลองใหม่อีกครั้งในอีกสักครู่";
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = "⏱️ หมดเวลาในการรอคำตอบ กรุณาลองใหม่อีกครั้ง";
+      } else if (error.message?.includes('400')) {
+        errorMessage = "❌ ข้อมูลที่ส่งไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง";
+      } else if (error.message?.includes('401') || error.message?.includes('403')) {
+        errorMessage = "🔐 ไม่มีสิทธิ์เข้าถึง API กรุณาติดต่อผู้ดูแลระบบ";
+      } else if (error.message) {
+        errorMessage = `❌ เกิดข้อผิดพลาด: ${error.message}`;
+      }
+      
       setMessages(prevMessages => [
         ...prevMessages, 
-        { role: 'assistant', content: "ขออภัย, มีข้อผิดพลาดเกิดขึ้น" }
+        { 
+          role: 'assistant', 
+          content: `${errorMessage}\n\n💡 **คำแนะนำ:**\n• ลองส่งข้อความอีกครั้ง\n• ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต\n• ถ้ายังไม่ได้ กรุณารีเฟรชหน้าเว็บ`
+        }
       ]);
     } finally {
-      setIsLoading(false); 
+      setIsLoading(false);
+      console.log('✅ Request completed');
     }
   };
 
@@ -908,6 +571,66 @@ export const ChatInterface = () => {
     setMessages([]);
     window.history.replaceState({}, '', '/');
     console.log('Started new chat');
+  };
+  
+  // ฟังก์ชัน Regenerate
+  const handleRegenerate = async (messageIndex: number) => {
+    console.log('🔄 Regenerating message at index:', messageIndex);
+    
+    // ป้องกันการ regenerate ขณะที่กำลัง loading
+    if (isLoading) {
+      console.warn('⚠️ Cannot regenerate while loading');
+      return;
+    }
+    
+    // หา user message ก่อนหน้า AI message ที่ต้องการ regenerate
+    let userMessageIndex = -1;
+    let userMessage: Message | null = null;
+    
+    for (let i = messageIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        userMessageIndex = i;
+        userMessage = messages[i];
+        break;
+      }
+    }
+    
+    if (userMessageIndex === -1 || !userMessage) {
+      console.error('❌ Cannot find user message for regeneration');
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '❌ ไม่สามารถ regenerate ได้ เนื่องจากไม่พบข้อความต้นฉบับ'
+        }
+      ]);
+      return;
+    }
+    
+    console.log('📝 Found user message at index:', userMessageIndex);
+    console.log('💬 User message:', userMessage.content.substring(0, 50) + '...');
+    
+    // รักษา conversation context โดยเก็บข้อความก่อนหน้า AI message ที่จะ regenerate
+    const contextMessages = messages.slice(0, messageIndex);
+    setMessages(contextMessages);
+    
+    // รอให้ UI update
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // ส่ง request ใหม่พร้อม context
+    await handleSendChat(
+      userMessage.content,
+      userMessage.images,
+      [] // ไม่มีไฟล์ในการ regenerate
+    );
+    
+    console.log('✅ Regeneration completed');
+  };
+  
+  // ฟังก์ชัน Copy (แสดง toast notification)
+  const handleCopy = (content: string) => {
+    console.log('📋 Copied to clipboard');
+    // อาจเพิ่ม toast notification ในอนาคต
   };
 
   return (
@@ -919,11 +642,16 @@ export const ChatInterface = () => {
       
       {/* ส่วนแสดงผลแชท หรือ หน้าจอ Welcome */}
       <div className='flex-1 flex flex-col items-center w-full overflow-y-auto pt-8'>
-        <div className="w-full max-w-3xl">
+        <div className="w-full max-w-7xl">
           {messages.length === 0 ? (
             <WelcomeScreen onSuggestionClick={handleSendChat} />
           ) : (
-            <MessageList messages={messages} isLoading={isLoading} />
+            <MessageList 
+              messages={messages} 
+              isLoading={isLoading}
+              onRegenerate={handleRegenerate}
+              onCopy={handleCopy}
+            />
           )}
         </div>
       </div>
