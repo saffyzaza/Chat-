@@ -61,19 +61,25 @@ export default function HistoryChatPage() {
     const date = new Date(dateString);
     const now = new Date();
     const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffMinutes = Math.floor(diffTime / (1000 * 60));
+    const diffHours = Math.floor(diffTime / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     const diffMonths = Math.floor(diffDays / 30);
 
-    if (diffDays <= 1) {
-      return `4 days ago`;
+    if (diffMinutes < 1) {
+      return `Just now`;
+    } else if (diffMinutes < 60) {
+      return `${diffMinutes} ${diffMinutes === 1 ? 'minute' : 'minutes'} ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    } else if (diffDays === 0) {
+      return `Today`;
+    } else if (diffDays === 1) {
+      return `Yesterday`;
     } else if (diffDays <= 7) {
       return `${diffDays} days ago`;
-    } else if (diffMonths === 2) {
-      return `2 months ago`;
-    } else if (diffMonths === 3) {
-      return `3 months ago`;
     } else if (diffMonths >= 1) {
-      return `${diffMonths} months ago`;
+      return `${diffMonths} ${diffMonths === 1 ? 'month' : 'months'} ago`;
     } else {
       return `${diffDays} days ago`;
     }
@@ -156,7 +162,7 @@ export default function HistoryChatPage() {
           </h1>
           <button 
             onClick={() => router.push('/')}
-            className="px-4 py-2 bg-black dark:bg-white text-white dark:text-black rounded-lg font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-[#eb6f45f1] dark:bg-white text-white dark:text-black rounded-lg font-medium hover:bg-[#f56e41] dark:hover:bg-gray-100 transition-colors flex items-center gap-2"
           >
             <span className="text-lg">+</span>
             New chat
@@ -182,7 +188,7 @@ export default function HistoryChatPage() {
               }}
               className="w-full pl-16 pr-6 py-5 rounded-lg border border-gray-200 dark:border-gray-700 
                        bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400
-                       focus:outline-none focus:ring-2 focus:ring-blue-900 focus:border-transparent
+                       focus:outline-none focus:ring-2 focus:ring-orange-900 focus:border-transparent
                        transition-all duration-200"
             />
           </div>
@@ -195,7 +201,7 @@ export default function HistoryChatPage() {
               {filteredHistory.length} chats with Claude{' '}
               <button 
                 onClick={toggleSelectAll}
-                className="text-blue-600 dark:text-blue-400 hover:underline"
+                className="text-orange-600 dark:text-orange-400 hover:underline"
               >
                 Select
               </button>
@@ -206,9 +212,9 @@ export default function HistoryChatPage() {
                 type="checkbox"
                 checked={selectedChats.length === filteredHistory.length && filteredHistory.length > 0}
                 onChange={toggleSelectAll}
-                className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                className="w-5 h-5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer accent-orange-500"
               />
-              <span className="text-gray-900 dark:text-white font-medium">
+              <span className="text-gray-900 dark:text-gray-400 font-medium">
                 {selectedChats.length} selected
               </span>
               <button
@@ -261,8 +267,8 @@ export default function HistoryChatPage() {
               <div
                 key={chat.id}
                 className={`border-b border-gray-200 dark:border-gray-700 py-4 px-2 
-                         hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer 
-                         transition-colors group relative ${selectedChats.includes(chat.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
+                         hover:bg-gray-50 dark:hover:bg-gray-200/50 cursor-pointer 
+                         transition-colors group relative ${selectedChats.includes(chat.id) ? 'bg-orange-50 dark:bg-orange-900/20' : ''}`}
                 onClick={() => handleChatClick(chat.id)}
               >
                 <div className="flex items-start gap-3">
@@ -271,17 +277,17 @@ export default function HistoryChatPage() {
                     checked={selectedChats.includes(chat.id)}
                     onChange={() => toggleChatSelection(chat.id)}
                     onClick={(e) => e.stopPropagation()}
-                    className={`w-5 h-5 mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer transition-opacity ${
+                    className={`w-5 h-5 mt-0.5 rounded border-gray-300 text-orange-600 focus:ring-orange-500 cursor-pointer transition-opacity accent-orange-500 ${
                       selectedChats.includes(chat.id) 
                         ? 'opacity-100' 
                         : 'opacity-0 group-hover:opacity-100'
                     }`}
                   />
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-medium text-gray-900 dark:text-white mb-1">
+                    <h3 className="text-base font-medium text-gray-900 dark:text-black mb-1">
                       {chat.title}
                     </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-gray-500 hover:text-gray-700 dark:text-black/40">
                       Last message {formatDate(chat.updatedAt)}
                     </p>
                   </div>
