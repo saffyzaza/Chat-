@@ -45,9 +45,10 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                 <div>
                     {/* Header: Logo + Toggle Button */}
                     <div className={`flex items-center ${isExpanded ? 'justify-between' : 'justify-center'} p-4 mb-4`}>
-                        <img src="https://www.thaihealth.or.th/wp-content/uploads/2023/08/Logo-thaihealth.png" alt="Logo" className={`h-8 ${isExpanded ? 'block' : 'hidden'}`} />
-                        
-                        {/* 6. ซ่อนปุ่ม Toggle นี้บนมือถือ (md:block) */}
+                        <div className={`flex items-center gap-5 ${isExpanded ? 'block' : 'hidden'}`}>
+                            <img src="https://s.imgz.io/2025/11/17/S__16498692-_1_-removebg-preview-removebg-preview6a198be1c3042511.png" alt="Logo 2" className="h-12" />
+                        </div>
+                     
                         <button
                             onClick={toggleSidebar}
                             className="p-1 text-[#eb6f45f1] rounded-full hover:bg-orange-200/50 transition-colors duration-200 hidden md:block" // <-- เพิ่ม hidden md:block
@@ -112,6 +113,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                     <button className={`flex items-center space-x-3 p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? '' : 'justify-center'}`}>
                         <IoPersonCircle size={28} className="text-gray-600 flex-shrink-0 " />
                         <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>My Account</span>
+                        
                     </button>
                 </div>
 
