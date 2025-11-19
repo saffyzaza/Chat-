@@ -446,41 +446,6 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
           </div>
         </div>
         <div className='flex items-center space-x-2'>
-          {/* 3. ปุ่ม โมเดล และ Popup */}
-          {/* <div className="relative">
-            {openPopup === 'model' && (
-              <div ref={modelPopupRef} className="absolute bottom-full right-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem 
-                  icon={<IoHardwareChipOutline size={22} className="text-gray-600" />} 
-                  text="โมเดลมาตรฐาน"
-                  onClick={() => { setOpenPopup(null); }}
-                />
-                <PopupMenuItem 
-                  icon={<IoSparklesOutline size={22} className="text-gray-600" />} 
-                  text="โมเดลขั้นสูง"
-                  onClick={() => { setOpenPopup(null); }}
-                />
-                <PopupMenuItem 
-                  icon={<IoChatbubblesOutline size={22} className="text-gray-600" />} 
-                  text="โหมดสนทนา"
-                  onClick={() => { setOpenPopup(null); }}
-                />
-                <PopupMenuItem 
-                  icon={<IoLogoGoogle size={22} className="text-gray-600" />} 
-                  text="ค้นหากับ Google"
-                  onClick={() => { setOpenPopup(null); }}
-                />
-              </div>
-            )}
-            <button 
-              ref={modelBtnRef}
-              onClick={() => togglePopup('model')} 
-              className={`flex items-center cursor-pointer space-x-2 bg-gray-100 rounded-full px-4 py-2 hover:bg-gray-200 transition-colors ${openPopup === 'model' ? 'bg-gray-200' : ''}`}
-            >
-              <IoEllipsisVertical size={20} className='text-[#eb6f45f1]' />
-              <span className='text-gray-700 font-medium text-sm'>โมเดล</span>
-            </button>
-          </div> */}
         </div>
       </div>
     </div>

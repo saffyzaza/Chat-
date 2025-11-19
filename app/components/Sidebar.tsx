@@ -108,14 +108,14 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                 </div>
 
                 {/* === ส่วนล่าง: Profile === */}
-                <div className="px-2">
+                {/* <div className="px-2">
                     <hr className="border-gray-300/70 my-2" />
                     <button className={`flex items-center space-x-3 p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? '' : 'justify-center'}`}>
                         <IoPersonCircle size={28} className="text-gray-600 flex-shrink-0 " />
                         <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>My Account</span>
                         
                     </button>
-                </div>
+                </div> */}
 
             </div>
         </>
