@@ -12,7 +12,7 @@ import {
   clearAllSessions,
   generateSessionId,
   generateSessionTitle,
-  generatePreview,
+  addMessageToSession,
   searchSessions,
   filterSessionsByDate,
   getChatSession
@@ -29,10 +29,10 @@ export const useChatHistory = () => {
   }, []);
 
   // โหลดประวัติทั้งหมด
-  const loadSessions = useCallback(() => {
+  const loadSessions = useCallback(async () => {
     setIsLoading(true);
     try {
-      const allSessions = getAllChatSessions();
+      const allSessions = await getAllChatSessions();
       setSessions(allSessions);
     } catch (error) {
       console.error('Error loading sessions:', error);
@@ -42,7 +42,7 @@ export const useChatHistory = () => {
   }, []);
 
   // สร้าง session ใหม่
-  const createNewSession = useCallback((firstMessage: string): string => {
+  const createNewSession = useCallback(async (firstMessage: string): Promise<string> => {
     const sessionId = generateSessionId();
     const title = generateSessionTitle(firstMessage);
     
@@ -56,47 +56,36 @@ export const useChatHistory = () => {
       preview: ''
     };
     
-    saveChatSession(newSession);
+    await saveChatSession(newSession);
     setCurrentSessionId(sessionId);
-    loadSessions();
+    await loadSessions();
     
     return sessionId;
   }, [loadSessions]);
 
   // เพิ่มข้อความลงใน session
-  const addMessageToSession = useCallback((
+  const addMessage = useCallback(async (
     sessionId: string,
     message: ChatMessage
   ) => {
-    const session = getChatSession(sessionId);
-    if (!session) {
-      console.error('Session not found:', sessionId);
-      return;
+    try {
+      // เพิ่ม timestamp ถ้ายังไม่มี
+      const messageWithTimestamp: ChatMessage = {
+        ...message,
+        timestamp: message.timestamp || new Date().toISOString()
+      };
+
+      await addMessageToSession(sessionId, messageWithTimestamp);
+      await loadSessions();
+    } catch (error) {
+      console.error('Error adding message:', error instanceof Error ? error.message : String(error));
+      throw error; // Re-throw เพื่อให้ UI จัดการได้
     }
-
-    // เพิ่ม timestamp ถ้ายังไม่มี
-    const messageWithTimestamp: ChatMessage = {
-      ...message,
-      timestamp: message.timestamp || new Date().toISOString()
-    };
-
-    session.messages.push(messageWithTimestamp);
-    session.messageCount = session.messages.filter(m => m.role !== 'system').length;
-    session.updatedAt = new Date().toISOString();
-    session.preview = generatePreview(session.messages);
-
-    // อัปเดตชื่อถ้ายังเป็นค่าเริ่มต้น และมีข้อความแรกจาก user
-    if (session.messages.length === 1 && message.role === 'user') {
-      session.title = generateSessionTitle(message.content);
-    }
-
-    saveChatSession(session);
-    loadSessions();
   }, [loadSessions]);
 
   // โหลด session เดียว
-  const loadSession = useCallback((sessionId: string) => {
-    const session = getChatSession(sessionId);
+  const loadSession = useCallback(async (sessionId: string) => {
+    const session = await getChatSession(sessionId);
     if (session) {
       setCurrentSessionId(sessionId);
       return session;
@@ -105,46 +94,45 @@ export const useChatHistory = () => {
   }, []);
 
   // ลบ session
-  const deleteSession = useCallback((sessionId: string) => {
-    deleteChatSession(sessionId);
+  const deleteSession = useCallback(async (sessionId: string) => {
+    await deleteChatSession(sessionId);
     if (currentSessionId === sessionId) {
       setCurrentSessionId(null);
     }
-    loadSessions();
+    await loadSessions();
   }, [currentSessionId, loadSessions]);
 
   // ลบหลาย sessions
-  const deleteSessions = useCallback((sessionIds: string[]) => {
-    deleteMultipleSessions(sessionIds);
+  const deleteSessions = useCallback(async (sessionIds: string[]) => {
+    await deleteMultipleSessions(sessionIds);
     if (currentSessionId && sessionIds.includes(currentSessionId)) {
       setCurrentSessionId(null);
     }
-    loadSessions();
+    await loadSessions();
   }, [currentSessionId, loadSessions]);
 
   // อัปเดตชื่อ session
-  const renameSession = useCallback((sessionId: string, newTitle: string) => {
-    updateSessionTitle(sessionId, newTitle);
-    loadSessions();
+  const renameSession = useCallback(async (sessionId: string, newTitle: string) => {
+    await updateSessionTitle(sessionId, newTitle);
+    await loadSessions();
   }, [loadSessions]);
 
   // ล้างประวัติทั้งหมด
-  const clearHistory = useCallback(() => {
-    clearAllSessions();
+  const clearHistory = useCallback(async () => {
+    await clearAllSessions();
     setCurrentSessionId(null);
-    loadSessions();
+    await loadSessions();
   }, [loadSessions]);
 
   // ค้นหา sessions
-  const search = useCallback((query: string) => {
-    const results = searchSessions(query);
+  const search = useCallback(async (query: string) => {
+    const results = await searchSessions(query);
     setSessions(results);
   }, []);
 
   // กรองตามวันที่
-  const filterByDate = useCallback((filter: 'all' | 'today' | 'week' | 'month') => {
-    const allSessions = getAllChatSessions();
-    const filtered = filterSessionsByDate(allSessions, filter);
+  const filterByDate = useCallback(async (filter: 'all' | 'today' | 'week' | 'month') => {
+    const filtered = await filterSessionsByDate(filter);
     setSessions(filtered);
   }, []);
 
@@ -158,7 +146,7 @@ export const useChatHistory = () => {
     currentSessionId,
     isLoading,
     createNewSession,
-    addMessageToSession,
+    addMessageToSession: addMessage,
     loadSession,
     deleteSession,
     deleteSessions,

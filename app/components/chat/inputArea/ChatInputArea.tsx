@@ -220,7 +220,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
           onKeyDown={handleKeyDown}
           disabled={isLoading}
         />
-        <button 
+        {/* <button 
           type="button"
           onClick={toggleRecording}
           className={`p-2 rounded-lg transition-colors ${
@@ -231,7 +231,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
           title={isRecording ? "หยุดบันทึก" : "บันทึกเสียง"}
         >
           <IoMicOutline size={20} />
-        </button>
+        </button> */}
         <button 
           type="button"
           onClick={handleSubmit}
