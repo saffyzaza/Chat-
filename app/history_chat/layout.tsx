@@ -31,40 +31,33 @@ export default function HistoryChatLayout({
     setIsSidebarOpen(true);
   };
   return (
-    <html>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-              <div className="relative flex h-screen bg-gray-100">
-                
-                {/* 5. ส่ง State และฟังก์ชันลงไปเป็น props */}
-                <Sidebar 
-                  isExpanded={isSidebarOpen} 
-                  toggleSidebar={toggleSidebar}
-                  expandSidebar={expandSidebar}
-                />
+    <div className="relative flex h-screen bg-gray-100">
+      
+      {/* 5. ส่ง State และฟังก์ชันลงไปเป็น props */}
+      <Sidebar 
+        isExpanded={isSidebarOpen} 
+        toggleSidebar={toggleSidebar}
+        expandSidebar={expandSidebar}
+      />
+
+      {/* 6. ส่วนเนื้อหาหลัก */}
+      <div className="flex-1 flex flex-col h-screen overflow-y-auto">
         
-                {/* 6. ส่วนเนื้อหาหลัก */}
-                <div className="flex-1 flex flex-col h-screen overflow-y-auto">
-                  
-                  {/* 7. Header สำหรับมือถือ (รับฟังก์ชัน toggle) */}
-                  <MobileHeader toggleSidebar={toggleSidebar} />
-        
-                  {/* 8. หน้าแชท */}
-                {children}
-                </div>
-        
-                {/* 9. Backdrop (พื้นหลังมืดๆ ตอนเปิดบนมือถือ) */}
-                {isSidebarOpen && (
-                  <div 
-                    onClick={toggleSidebar}
-                    className="md:hidden fixed inset-0 bg-black/50 z-10"
-                    aria-label="Close sidebar"
-                  />
-                )}
-              </div>
-        
-      </body>
-    </html>
+        {/* 7. Header สำหรับมือถือ (รับฟังก์ชัน toggle) */}
+        <MobileHeader toggleSidebar={toggleSidebar} />
+
+        {/* 8. หน้าแชท */}
+        {children}
+      </div>
+
+      {/* 9. Backdrop (พื้นหลังมืดๆ ตอนเปิดบนมือถือ) */}
+      {isSidebarOpen && (
+        <div 
+          onClick={toggleSidebar}
+          className="md:hidden fixed inset-0 bg-black/50 z-10"
+          aria-label="Close sidebar"
+        />
+      )}
+    </div>
   );
 }

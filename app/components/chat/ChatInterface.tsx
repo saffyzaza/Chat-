@@ -78,32 +78,35 @@ export const ChatInterface = () => {
     if (sessionId) {
       console.log('🔍 Loading session from URL:', sessionId);
       
-      // โหลดประวัติจาก session ID
-      const session = loadSession(sessionId);
-      if (session) {
-        console.log('✅ Session loaded:', session.title, 'Messages:', session.messages.length);
-        
-        // แปลง ChatMessage[] เป็น Message[]
-        const loadedMessages: Message[] = session.messages
-          .filter(m => m.role !== 'system')
-          .map(m => ({
-            role: m.role,
-            content: m.content,
-            images: m.images,
-            charts: m.charts,
-            tables: m.tables,
-            codeBlocks: m.codeBlocks,
-            isNewMessage: false // ข้อความจากประวัติไม่ต้องใช้ TextType animation
-          }));
-        
-        setMessages(loadedMessages);
-        console.log('📝 Set messages to state:', loadedMessages.length, 'messages');
-        
-        // Clear URL parameter หลังโหลดเสร็จ (optional - เพื่อให้ URL สะอาด)
-        window.history.replaceState({}, '', '/');
-      } else {
-        console.error('❌ Session not found:', sessionId);
-      }
+      // โหลดประวัติจาก session ID (async)
+      loadSession(sessionId).then(session => {
+        if (session) {
+          console.log('✅ Session loaded:', session.title, 'Messages:', session.messages?.length || 0);
+          
+          // แปลง ChatMessage[] เป็น Message[]
+          const loadedMessages: Message[] = (session.messages || [])
+            .filter(m => m.role !== 'system')
+            .map(m => ({
+              role: m.role,
+              content: m.content,
+              images: m.images,
+              charts: m.charts,
+              tables: m.tables,
+              codeBlocks: m.codeBlocks,
+              isNewMessage: false // ข้อความจากประวัติไม่ต้องใช้ TextType animation
+            }));
+          
+          setMessages(loadedMessages);
+          console.log('📝 Set messages to state:', loadedMessages.length, 'messages');
+          
+          // Clear URL parameter หลังโหลดเสร็จ (optional - เพื่อให้ URL สะอาด)
+          window.history.replaceState({}, '', '/');
+        } else {
+          console.error('❌ Session not found:', sessionId);
+        }
+      }).catch(error => {
+        console.error('❌ Error loading session:', error);
+      });
     }
   }, [loadSession]);
   
@@ -169,12 +172,12 @@ export const ChatInterface = () => {
     console.log('📌 Current session ID:', sessionId);
     
     if (!sessionId) {
-      sessionId = createNewSession(prompt);
+      sessionId = await createNewSession(prompt);
       console.log('🆕 Created new session:', sessionId);
     }
     
     // บันทึก user message ลง localStorage (เพิ่ม timestamp)
-    addMessageToSession(sessionId, {
+    await addMessageToSession(sessionId, {
       ...userMessage,
       timestamp: new Date().toISOString()
     });
@@ -432,7 +435,7 @@ setMessages(prevMessages => [...prevMessages, aiMessage]);
 
 // บันทึก AI response ลง localStorage
 if (sessionId) {
-  addMessageToSession(sessionId, {
+  await addMessageToSession(sessionId, {
     ...aiMessage,
     timestamp: new Date().toISOString()
   });
@@ -538,6 +541,135 @@ const handleCopy = (content: string) => {
   // อาจเพิ่ม toast notification ในอนาคต
 };
 
+// ฟังก์ชันแก้ไขข้อความ
+const handleEdit = async (messageIndex: number, newContent: string) => {
+  console.log('✏️ Editing message at index:', messageIndex);
+  
+  // อัปเดตข้อความที่แก้ไข
+  const updatedMessages = [...messages];
+  const originalImages = updatedMessages[messageIndex].images;
+  
+  updatedMessages[messageIndex] = {
+    ...updatedMessages[messageIndex],
+    content: newContent
+  };
+  
+  // ลบข้อความหลังจากข้อความที่แก้ไข (รวมถึงคำตอบของ AI)
+  const newMessages = updatedMessages.slice(0, messageIndex + 1);
+  setMessages(newMessages);
+  
+  // รอให้ UI update
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  setIsLoading(true);
+  console.log('📤 Re-sending edited message');
+
+  try {
+    const API_KEY = "AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8";
+    
+    // สร้าง contents สำหรับ Gemini API พร้อม conversation history
+    const contents = [];
+    
+    // เพิ่ม system instruction
+    contents.push({
+      role: 'user',
+      parts: [{ text: SYSTEM_PROMPT }]
+    });
+    
+    // เพิ่ม conversation history จนถึงข้อความที่แก้ไข
+    for (const msg of newMessages) {
+      if (msg.role === 'user') {
+        const userParts: any[] = [{ text: msg.content }];
+        
+        // เพิ่มรูปภาพถ้ามี
+        if (msg.images && msg.images.length > 0) {
+          for (const base64Image of msg.images) {
+            const base64Data = base64Image.split(',')[1];
+            const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
+            userParts.push({
+              inlineData: {
+                mimeType: mimeType,
+                data: base64Data
+              }
+            });
+          }
+        }
+        
+        contents.push({
+          role: 'user',
+          parts: userParts
+        });
+      } else if (msg.role === 'assistant') {
+        contents.push({
+          role: 'model',
+          parts: [{ text: msg.content }]
+        });
+      }
+    }
+    
+    console.log('📨 Sending to Gemini API with', contents.length, 'messages');
+    
+    // เรียก Gemini API
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ API Error:', errorData);
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Received AI response');
+
+    // ดึงข้อความจาก response
+    let aiResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'ขออภัย ไม่สามารถสร้างคำตอบได้';
+    
+    // ลบ system prompt ออกจากคำตอบถ้ามี
+    if (aiResponseText.includes(SYSTEM_PROMPT)) {
+      aiResponseText = aiResponseText.replace(SYSTEM_PROMPT, '').trim();
+    }
+    
+    // สร้าง AI message object
+    const aiMessage: Message = {
+      role: 'assistant',
+      content: aiResponseText.trim(),
+      isNewMessage: true
+    };
+
+    // เพิ่มคำตอบของ AI ลงใน State
+    setMessages(prevMessages => [...prevMessages, aiMessage]);
+
+    // บันทึก AI response ลง session
+    if (currentSessionId) {
+      await addMessageToSession(currentSessionId, {
+        ...aiMessage,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error: any) {
+    console.error("❌ Error in edit regenerate:", error);
+    setMessages(prevMessages => [
+      ...prevMessages,
+      {
+        role: 'assistant',
+        content: `❌ เกิดข้อผิดพลาด: ${error.message}\n\n💡 กรุณาลองใหม่อีกครั้ง`
+      }
+    ]);
+  } finally {
+    setIsLoading(false);
+  }
+  
+  console.log('✅ Message edited and regenerated');
+};
+
 return (
   // เปลี่ยน layout ให้เป็น Flex Column เต็มจอ
   <div className='h-screen bg-gray-100 flex flex-col'>
@@ -556,6 +688,7 @@ return (
             isLoading={isLoading}
             onRegenerate={handleRegenerate}
             onCopy={handleCopy}
+            onEdit={handleEdit}
           />
         )}
       </div>
