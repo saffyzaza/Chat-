@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Markdown } from './markdown';
+import Markdown from 'react-markdown';
+
 
 interface TextTypeProps {
   text: string;
@@ -105,9 +106,20 @@ export const TextType: React.FC<TextTypeProps> = ({
     onCharacterTyped,
     isComplete
   ]);
-
+  function smartMarkdownFormatter(text: string): string {
+  return text
+    .replace(/^#\s*/, '# ')
+    .replace(/(\d+\.\d+)\s/g, '\n\n### $1 ')
+    .replace(/(\n)?(?=\d+\.\s)/g, '\n\n## ')
+    .replace(/\*\*(.+?)\*\*(?!\n)/g, '**$1**\n\n')
+    .replace(/([^\n])\n(#{2,3}\s)/g, '$1\n\n$2')
+    .replace(/(#{2,3}\s[^\n]+)\n([^\n#])/g, '$1\n\n$2')
+    .replace(/[ ]{2,}/g, ' ')
+    .replace(/\n[ ]+/g, '\n')
+    .trim();
+  }
   return (
-    <Markdown>{displayText}</Markdown>
+    <Markdown>{smartMarkdownFormatter(displayText)}</Markdown>
     
     // <span className='text-blue-600' style={{ whiteSpace: 'pre-wrap' }}>
     //   {displayText}
