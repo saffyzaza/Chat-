@@ -104,7 +104,6 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit 
         }
       `}</style>
       {visibleMessages.map((msg, index) => (
-        
         <div 
           key={index} 
           className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
