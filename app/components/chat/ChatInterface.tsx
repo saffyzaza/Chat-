@@ -255,7 +255,7 @@ export const ChatInterface = () => {
                   const content = line.slice(6); // ตัด "data: " ออก
                   if (content && content !== '[DONE]' && content.trim() !== '') {
                     accumulatedContent += content;
-                    console.log('🧩 Received chunk:', content);
+                    // console.log('🧩 Received chunk:', content);
                     // อัปเดต UI แบบ real-time
                     setMessages(prevMessages => {
                   
