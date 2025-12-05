@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Markdown } from './markdown';
 
 interface TextTypeProps {
   text: string;
@@ -106,11 +107,13 @@ export const TextType: React.FC<TextTypeProps> = ({
   ]);
 
   return (
-    <span className={className} style={{ whiteSpace: 'pre-wrap' }}>
-      {displayText}
-      {showCursor && (
-        <span className="animate-pulse">{cursorChar}</span>
-      )}
-    </span>
+    <Markdown>{displayText}</Markdown>
+    
+    // <span className='text-blue-600' style={{ whiteSpace: 'pre-wrap' }}>
+    //   {displayText}
+    //   {showCursor && (
+    //     <span className="animate-pulse">{cursorChar}</span>
+    //   )}
+    // </span>
   );
 };

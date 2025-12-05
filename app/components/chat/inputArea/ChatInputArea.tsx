@@ -45,7 +45,7 @@ const PopupMenuItem = ({ icon, text, onClick, disabled = false }: {
 
 // --- Props Interface (รับฟังก์ชันจาก ChatInterface) ---
 interface ChatInputAreaProps {
-  onSend: (prompt: string, imageUrls?: string[], files?: File[]) => void; 
+  onSend: (prompt: string, imageUrls?: string[], files?: File[], selectedTool?: string | null) => void; 
   isLoading: boolean;    
   // ส่ง prompt + ไฟล์ (ถ้า parent รองรับ) ใช้แทน onSend เมื่อมีไฟล์แนบ
   onSendWithFiles?: (prompt: string, files: File[], imageUrls?: string[]) => void;
@@ -146,8 +146,8 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
     // ส่ง URL ของรูปภาพ (previews) ไปด้วย
     const imageUrls = previews.filter(url => url !== '');
     
-    // ส่งทั้งรูปภาพและไฟล์ไปด้วย
-    onSend(finalPrompt, imageUrls, files);
+    // ส่งทั้งรูปภาพและไฟล์ไปด้วย พร้อม selectedTool
+    onSend(finalPrompt, imageUrls, files, selectedTool);
     // เคลียร์ค่า
     setPrompt("");
     setFiles([]);
