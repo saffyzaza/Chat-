@@ -22,7 +22,7 @@ const SuggestionCard = ({ title, description, onClick }: { title: string, descri
 const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: string) => void }) => (
   <>
     <div className='flex flex-col items-center space-y-4 mb-8 mt-40'>
-      <img src="https://www.thaihealth.or.th/wp-content/uploads/2023/08/Logo-thaihealth.png" alt="Logo" className="h-20" />
+      <img src="https://s.imgz.io/2025/12/27/Logo-thaihealth149429a17bc1ae40.webp" alt="Logo" className="h-20" />
       <p className="text-xl font-semibold text-gray-600">
         สำนักงานกองทุนสนับสนุนการสร้างเสริมสุขภาพ
       </p>
@@ -198,19 +198,24 @@ export const ChatInterface = () => {
       content: SYSTEM_PROMPT
     };
 
+    const API_Rag = process.env.NEXT_PUBLIC_RAG_API_KEY;
+    
+
     try {
       // ตรวจสอบว่าเลือก "เขียนแผนงาน" หรือไม่
-      if (selectedTool === 'เขียนแผนงาน') {
+      if (selectedTool === 'เขียนแผนงาน' || selectedTool === 'ฐานข้อมูล') {
         console.log('📝 Using Planning API for:', prompt);
+      
 
         // เรียก API ใหม่ (SSE stream)
-        const planningResponse = await fetch('http://72.61.120.205:8001/qa/stream', {
+        const planningResponse = await fetch(`${API_Rag}/qa/stream`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            query: prompt
+            query: prompt,
+            is_database: selectedTool === 'ฐานข้อมูล' ? true : false
           })
         });
 
@@ -255,7 +260,7 @@ export const ChatInterface = () => {
                   const content = line.slice(6); // ตัด "data: " ออก
                   if (content && content !== '[DONE]' && content.trim() !== '') {
                     accumulatedContent += content;
-                    console.log('🧩 Received chunk:', content);
+                    // console.log('🧩 Received chunk:', content);
                     // อัปเดต UI แบบ real-time
                     setMessages(prevMessages => {
                   
@@ -310,7 +315,9 @@ export const ChatInterface = () => {
       }
 
       // ใช้ Google Gemini API โดยตรง
-      const API_KEY = "AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8";
+      const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+      console.log('📡 Using google API endpoint:', process.env.NEXT_PUBLIC_ANALYTICS_ID);
+
 
       // สร้าง contents สำหรับ Gemini API พร้อม conversation history
       const contents = [];

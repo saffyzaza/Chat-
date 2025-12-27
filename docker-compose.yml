@@ -1,0 +1,40 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: chat_aio_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: chat-aio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Auto-run all SQL files on first init
+      - ./database:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chat-aio"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Optional: pgAdmin UI
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: chat_aio_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin1234
+    ports:
+      - "8081:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+    name: chat_aio_pgdata

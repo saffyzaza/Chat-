@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { CiDatabase } from 'react-icons/ci';
 import { 
   IoAdd, 
   IoBulbOutline, 
@@ -435,6 +436,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('เขียนแผนงาน');
+                  }}
+                />
+                <PopupMenuItem 
+                  icon={<CiDatabase size={22} className="text-gray-600" />} 
+                  text="ฐานข้อมูล"
+                  onClick={() => { 
+                    setOpenPopup(null); 
+                    setSelectedTool('ฐานข้อมูล');
                   }}
                 />
               </div>
