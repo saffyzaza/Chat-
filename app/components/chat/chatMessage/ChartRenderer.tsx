@@ -85,26 +85,26 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
           responsive: true,
           maintainAspectRatio: false, // ให้ canvas ยืดสูงตาม container
           layout: {
-            padding: 12,
+            padding: 8,
           },
           plugins: {
             legend: {
               position: 'top',
               labels: {
                 font: {
-                  size: 14,
+                  size: 20,
                 },
               },
             },
             title: {
               display: !!chartData.options?.plugins?.title?.text,
               text: chartData.options?.plugins?.title?.text,
-              font: { size: 16 },
+              font: { size: 20 },
             },
             tooltip: {
-              titleFont: { size: 12 },
-              bodyFont: { size: 12 },
-              footerFont: { size: 12 },
+              titleFont: { size: 16 },
+              bodyFont: { size: 16 },
+              footerFont: { size: 16 },
             },
           },
           interaction: {
@@ -116,13 +116,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
               ticks: {
                 maxRotation: 40,
                 minRotation: 0,
-                font: { size: 12 },
+                font: { size: 16 },
               },
               grid: { color: '#eee' },
             },
             y: {
               ticks: {
-                font: { size: 12 },
+                font: { size: 16 },
               },
               grid: { color: '#eee' },
               beginAtZero: true,
@@ -143,7 +143,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
 
   return (
     <div className="chart-container bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-200 my-4 w-full flex flex-col">
-      <div className="relative w-full h-76 md:h-64 lg:h-80">
+      <div className="relative w-full h-100 md:h-64 lg:h-80">
         <canvas ref={canvasRef} className="w-full h-full" />
       </div>
     </div>

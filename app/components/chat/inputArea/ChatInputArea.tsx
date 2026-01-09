@@ -95,6 +95,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // --- Refs สำหรับ Popups ---
   const addBtnRef = useRef<HTMLButtonElement>(null);
@@ -227,6 +228,28 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
     }
   };
 
+  // --- ปรับขนาด textarea อัตโนมัติ สูงสุด 5 แถว ---
+  const autoResizeTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const styles = window.getComputedStyle(el);
+    const line = parseFloat(styles.lineHeight);
+    const fontSize = parseFloat(styles.fontSize) || 16;
+    const lineHeight = isNaN(line) ? fontSize * 1.4 : line;
+    const paddingTop = parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+    const maxRows = 5;
+    const maxHeight = lineHeight * maxRows + paddingTop + paddingBottom;
+    const newHeight = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${newHeight}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  };
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [prompt]);
+
   // --- ฟังก์ชันบันทึกเสียง ---
   const toggleRecording = () => {
     setIsRecording(!isRecording);
@@ -342,6 +365,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isLoading}
+          ref={textareaRef}
         />
         {/* <button 
           type="button"
