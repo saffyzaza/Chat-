@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* Responsive font variables */
+:root {
+  --md-font-size-base: 1rem; /* overall markdown body */
+  --md-line-height: 1.5;
+  --md-table-font-size: 0.92rem;
+  --md-code-font-size: 0.9rem;
+}
+
 /* ซ่อน scrollbar แต่ยังคงสามารถ scroll ได้ */
 * {
   scrollbar-width: none; /* Firefox */
@@ -13,6 +21,7 @@
 /* ให้ body และ html เต็มหน้าจอ */
 html, body {
   overflow-x: hidden;
+  font-family: 'Roboto', system-ui, -apple-system, sans-serif;
 }
 
 /* Animation สำหรับ Login Popup */
@@ -29,5 +38,85 @@ html, body {
 
 .animate-fadeIn {
   animation: fadeIn 0.2s ease-out;
+}
+
+/* Markdown global styles */
+.markdown-body {
+  /* Responsive base font size */
+  font-size: clamp(1.2rem, 0.9vw + 0.72rem, var(--md-font-size-base));
+  line-height: var(--md-line-height);
+  /* inherit text color from container to support light text bubbles */
+  color: inherit;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
+.markdown-body p { margin: 0.5rem 0; }
+
+.markdown-body h1 { font-size: 1.5rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.markdown-body h2 { font-size: 1.25rem; font-weight: 600; margin: 1rem 0 0.5rem; }
+.markdown-body h3 { font-size: 1.125rem; font-weight: 600; margin: 0.75rem 0 0.5rem; }
+.markdown-body h4 { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.5rem; }
+
+.markdown-body ul { list-style: disc; padding-left: 1.25rem; margin: 0.2rem 22; }
+.markdown-body ol { list-style: decimal; padding-left: 1.25rem; margin: 0.5rem 20; }
+.markdown-body li { margin: 0.25rem 0; }
+
+.markdown-body code { background: #f3f4f6; padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-size: var(--md-code-font-size); }
+.markdown-body pre { background: #f3f4f6; padding: 0.6rem; border-radius: 0.5rem; overflow-x: auto; font-size: var(--md-code-font-size); }
+
+.markdown-body table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: var(--md-table-font-size); }
+.markdown-body thead { background: #f97316; color: #fff; }
+.markdown-body th, .markdown-body td { border: 1px solid #e5e7eb; padding: 0.45rem 0.7rem; text-align: center; }
+.markdown-body tr:nth-child(even) { background: #f9fafb; }
+
+.markdown-body blockquote { border-left: 3px solid #e5e7eb; padding-left: 0.75rem; color: #4b5563; margin: 0.75rem 0; }
+
+@media (max-width: 640px) {
+  .markdown-body {
+    --md-font-size-base: 0.95rem;
+    --md-table-font-size: 0.88rem;
+    --md-code-font-size: 0.88rem;
+  }
+}
+
+/* Code block component (non-markdown) */
+.code-block pre {
+  background: #111827; /* gray-900 */
+  color: #e5e7eb; /* gray-200 */
+  font-size: var(--md-code-font-size);
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+.code-block code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Styled AI tables (JSON:table renderer) */
+.ai-table {
+  /* Responsive table font size (เล็กลงให้พอดีตา) */
+  font-size: clamp(0.10rem, 0.10rem + 0.5rem, var(--md-table-font-size));
+}
+.ai-table thead th {
+  font-weight: 400;
+  white-space: nowrap; /* keep header in one line */
+  word-break: keep-all; /* avoid breaking Thai characters */
+}
+.ai-table td,
+.ai-table th {
+  padding: 0.4rem 0.65rem;
+  white-space: normal;
+  word-break: break-word;
+}
+.ai-table-sm { font-size: calc(var(--md-table-font-size) - 0.1rem); }
+.ai-table-lg { font-size: calc(var(--md-table-font-size) + 0.09rem); }
+
+/* Chart container defaults */
+.chart-container {
+  min-height: 0;
+}
+.chart-container canvas {
+  max-height: none;
 }
 

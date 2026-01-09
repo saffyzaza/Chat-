@@ -20,7 +20,8 @@ import {
   IoCreateOutline,
   IoMicOutline,
   IoCameraOutline,
-  IoImageOutline
+  IoImageOutline,
+  IoFolderOutline
 } from 'react-icons/io5'
 
 // --- Component ย่อยสำหรับรายการเมนู Popup ---
@@ -50,6 +51,8 @@ interface ChatInputAreaProps {
   isLoading: boolean;    
   // ส่ง prompt + ไฟล์ (ถ้า parent รองรับ) ใช้แทน onSend เมื่อมีไฟล์แนบ
   onSendWithFiles?: (prompt: string, files: File[], imageUrls?: string[]) => void;
+  // เรียกเมื่อผู้ใช้กดหยุด
+  onStop?: () => void;
 }
 
 // --- ข้อมูล Prompt สำหรับเมนูเครื่องมือ ---
@@ -59,16 +62,34 @@ const TOOL_PROMPTS = {
   consult: "ต้องการคำปรึกษาเกี่ยวกับข้อมูลนี้",
   summary: "ช่วยสรุปข้อมูลนี้",
   chart: "ช่วยสร้างกราฟจากข้อมูลนี้",
-  plan: "ช่วยวางแผนจากข้อมูลนี้"
+  plan: "ช่วยวางแผนจากข้อมูลนี้",
+  database: "ช่วยค้นหาข้อมูลจากฐานข้อมูลนี้"
 };
 
-export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputAreaProps) => {
+export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: ChatInputAreaProps) => {
   const [prompt, setPrompt] = useState("");
   const [openPopup, setOpenPopup] = useState<string | null>(null); 
   const [files, setFiles] = useState<File[]>([]); // เก็บไฟล์ที่แนบ
   const [previews, setPreviews] = useState<string[]>([]); // URL สำหรับแสดงรูป
   const [selectedTool, setSelectedTool] = useState<string | null>(null); // เก็บเครื่องมือที่เลือก
   const [isRecording, setIsRecording] = useState(false); // สถานะการบันทึกเสียง
+  const lastSentPromptRef = useRef<string>("");
+  
+  // MinIO Database Modal States
+  const [showDatabaseModal, setShowDatabaseModal] = useState(false);
+  const [minioFiles, setMinioFiles] = useState<any[]>([]);
+  const [currentPath, setCurrentPath] = useState('/');
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  // เก็บ key ของไฟล์ที่เลือกในรูปแบบ "<path>||<name>" เพื่อรองรับการค้นหาข้ามโฟลเดอร์
+  const [selectedMinioFiles, setSelectedMinioFiles] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const buildMinioKey = (file: { path?: string; name?: string }) => `${file.path || '/'}||${file.name || ''}`;
+  const parseMinioKey = (key: string) => {
+    const idx = key.indexOf('||');
+    if (idx === -1) return { path: '/', name: key };
+    return { path: key.slice(0, idx) || '/', name: key.slice(idx + 2) };
+  };
 
   // --- Ref สำหรับ input file (ซ่อน) ---
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,45 +139,50 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
   // --- ฟังก์ชันส่งข้อความ ---
   const handleSubmit = () => {
     let finalPrompt = prompt.trim();
-    const hasFiles = files.length > 0; // ตรวจสอบว่ามีไฟล์หรือไม่
-    const userTypedOwnPrompt = finalPrompt !== ""; // ผู้ใช้พิมพ์เองหรือไม่
-    
+    const hasFiles = files.length > 0;
+    const userTypedOwnPrompt = finalPrompt !== "";
+
     // กรณีที่ 1: มีเครื่องมือ + ไม่มี prompt ที่พิมพ์เอง
     if (selectedTool && !userTypedOwnPrompt) {
-      // เลือก prompt ตามชื่อ tool
       const toolMap: { [key: string]: string } = {
         'ค้นหาข้อมูล': TOOL_PROMPTS.search,
         'เปรียบเทียบข้อมูล': TOOL_PROMPTS.compare,
         'ขอคำปรึกษา': TOOL_PROMPTS.consult,
         'สรุปรายงาน': TOOL_PROMPTS.summary,
         'สร้างกราฟ': TOOL_PROMPTS.chart,
-        'เขียนแผนงาน': TOOL_PROMPTS.plan
+        'เขียนแผนงาน': TOOL_PROMPTS.plan,
+        'ฐานข้อมูล': TOOL_PROMPTS.database
       };
       finalPrompt = toolMap[selectedTool] || "";
-      
-      // ถ้ามีไฟล์แนบ → ต่อท้ายด้วย " จากไฟล์/รูปภาพที่แนบมา"
       if (hasFiles && finalPrompt) {
         finalPrompt += " จากไฟล์/รูปภาพที่แนบมา";
       }
     }
     // กรณีที่ 2: ผู้ใช้พิมพ์เอง → ใช้ prompt ที่พิมพ์ตามเดิม (ไม่ต่อท้าย)
     // กรณีที่ 3: ไม่มีเครื่องมือ + ไม่มี prompt → ไม่ส่ง
-    
+
     if (finalPrompt === "" || isLoading) return;
-    
+
     // ส่ง URL ของรูปภาพ (previews) ไปด้วย
     const imageUrls = previews.filter(url => url !== '');
-    
+
     // ส่งทั้งรูปภาพและไฟล์ไปด้วย พร้อม selectedTool
+    lastSentPromptRef.current = finalPrompt;
     onSend(finalPrompt, imageUrls, files, selectedTool);
-    // เคลียร์ค่า
+    // เคลียร์เฉพาะ prompt เท่านั้น ไม่ลบเครื่องมือ/ไฟล์
     setPrompt("");
-    setFiles([]);
-    setPreviews([]);
-    setSelectedTool(null); // เคลียร์เครื่องมือที่เลือก
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (imageInputRef.current) imageInputRef.current.value = "";
     if (cameraInputRef.current) cameraInputRef.current.value = "";
+  };
+
+  // --- ฟังก์ชันหยุดการตอบ และกู้คืนข้อความล่าสุด ---
+  const handleStopClick = () => {
+    if (onStop) onStop();
+    // รอสักครู่เพื่อให้แชทล้างข้อความ แล้วกู้คืนข้อความล่าสุดกลับมา
+    setTimeout(() => {
+      setPrompt(lastSentPromptRef.current || "");
+    }, 300);
   };
 
   // --- เลือกไฟล์ ---
@@ -207,6 +233,102 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
     // ที่นี่ควรมี logic สำหรับการบันทึกเสียงจริง
   };
 
+  // --- ฟังก์ชันดึงไฟล์จาก MinIO ---
+  const loadMinioFiles = async (path: string = '/', recursive: boolean = false) => {
+    setLoadingFiles(true);
+    try {
+      const response = await fetch(`/api/files?path=${encodeURIComponent(path)}&recursive=${recursive ? 'true' : 'false'}`);
+      if (response.ok) {
+        const data = await response.json();
+        setMinioFiles(data.files || []);
+        setCurrentPath(path);
+      }
+    } catch (error) {
+      console.error('Error loading MinIO files:', error);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  // โหลดไฟล์เมื่อเปิด modal
+  useEffect(() => {
+    if (!showDatabaseModal) return;
+    // ถ้ามีคำค้นหา ให้ดึงข้อมูลแบบ recursive จาก root เพื่อค้นหาทั้งนอก/ในโฟลเดอร์
+    if (searchQuery.trim() !== '') {
+      loadMinioFiles('/', true);
+    } else {
+      loadMinioFiles(currentPath, false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDatabaseModal, searchQuery]);
+
+  // --- Toggle เลือกไฟล์จาก MinIO ---
+  const toggleMinioFileSelection = (key: string) => {
+    setSelectedMinioFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
+  // --- ยืนยันเลือกไฟล์จาก MinIO ---
+  const handleConfirmMinioFiles = async () => {
+    if (selectedMinioFiles.size === 0) return;
+    
+    // ดาวน์โหลดไฟล์ที่เลือกจาก MinIO
+    const downloadPromises = Array.from(selectedMinioFiles).map(async (key) => {
+      const { path, name } = parseMinioKey(key);
+      try {
+        const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`);
+        if (response.ok) {
+          const blob = await response.blob();
+          const file = new File([blob], name, { type: blob.type });
+          return file;
+        }
+      } catch (error) {
+        console.error(`Error downloading ${name}:`, error);
+      }
+      return null;
+    });
+
+    const downloadedFiles = (await Promise.all(downloadPromises)).filter(f => f !== null) as File[];
+    
+    // เพิ่มไฟล์ที่ดาวน์โหลดเข้ากับไฟล์ที่มีอยู่
+    setFiles(prev => {
+      const map = new Map<string, File>();
+      [...prev, ...downloadedFiles].forEach(f => map.set(`${f.name}-${f.size}`, f));
+      return Array.from(map.values());
+    });
+
+    // ปิด modal (คงสถานะไฟล์ที่เลือกไว้ เพื่อให้กลับมาเปิดดูแล้วยังเห็นเหมือนเดิม)
+    setShowDatabaseModal(false);
+  };
+
+  // --- เปิด/ปิดโฟลเดอร์ ---
+  const handleOpenFolder = (folderName: string, basePath: string = currentPath) => {
+    const newPath = `${basePath}${folderName}/`;
+    loadMinioFiles(newPath, false);
+  };
+
+  const handleGoBack = () => {
+    if (currentPath === '/') return;
+    const pathParts = currentPath.split('/').filter(Boolean);
+    pathParts.pop();
+    const newPath = '/' + pathParts.join('/') + (pathParts.length > 0 ? '/' : '');
+    loadMinioFiles(newPath, false);
+  };
+
+  // --- กรองไฟล์ตามการค้นหา ---
+  const filteredMinioFiles = minioFiles.filter(file => {
+    const name = (file?.name || '').toString().toLowerCase();
+    const q = searchQuery.toLowerCase();
+    return name.includes(q);
+  });
+
   return (
     <div className='bg-white p-4 rounded-xl shadow-lg w-full'>
       {/* แถบ Input หลัก */}
@@ -233,18 +355,29 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
         >
           <IoMicOutline size={20} />
         </button> */}
-        <button 
-          type="button"
-          onClick={handleSubmit}
-          disabled={isLoading || (prompt.trim() === "" && !selectedTool && files.length === 0)}
-          className={`p-2 rounded-lg text-white ${
-            (isLoading || (prompt.trim() === "" && !selectedTool && files.length === 0))
-              ? 'bg-gray-400' 
-              : 'bg-[#eb6f45f1] hover:bg-opacity-90'
-          } transition-colors`}
-        >
-          <IoPaperPlane size={20} />
-        </button>
+        {isLoading ? (
+          <button
+            type="button"
+            onClick={handleStopClick}
+            className="p-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+            title="หยุด"
+          >
+            <IoCloseOutline size={20} />
+          </button>
+        ) : (
+          <button 
+            type="button"
+            onClick={handleSubmit}
+            disabled={isLoading || (prompt.trim() === "" && !selectedTool && files.length === 0)}
+            className={`p-2 rounded-lg text-white ${
+              (isLoading || (prompt.trim() === "" && !selectedTool && files.length === 0))
+                ? 'bg-gray-400' 
+                : 'bg-[#eb6f45f1] hover:bg-opacity-90'
+            } transition-colors`}
+          >
+            <IoPaperPlane size={20} />
+          </button>
+        )}
       </div>
 
       {/* แสดงไฟล์ที่แนบ */}
@@ -356,7 +489,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
                   text="ถ่ายรูป"
                   onClick={() => { cameraInputRef.current?.click(); setOpenPopup(null); }}
                 />
-                <PopupMenuItem 
+                {/* <PopupMenuItem 
                   icon={<IoMicOutline size={22} className="text-gray-600" />} 
                   text="บันทึกเสียง"
                   onClick={() => { toggleRecording(); setOpenPopup(null); }}
@@ -365,7 +498,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
                   icon={<IoDocumentTextOutline size={22} className="text-gray-600" />} 
                   text="สร้างเอกสารใหม่"
                   onClick={() => { setOpenPopup(null); }}
-                />
+                /> */}
                 <PopupMenuItem 
                   icon={<IoSparklesOutline size={22} className="text-gray-600" />} 
                   text="ใช้เครื่องมือ AI"
@@ -390,14 +523,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
           <div className="relative">
             {openPopup === 'tools' && (
               <div ref={toolsPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem 
+                {/* <PopupMenuItem 
                   icon={<IoSearchOutline size={22} className="text-gray-600" />} 
                   text="ค้นหาข้อมูล"
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('ค้นหาข้อมูล');
                   }}
-                />
+                /> */}
                 <PopupMenuItem 
                   icon={<IoGitCompareOutline size={22} className="text-gray-600" />} 
                   text="เปรียบเทียบข้อมูล"
@@ -444,6 +577,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('ฐานข้อมูล');
+                    setShowDatabaseModal(true);
                   }}
                 />
               </div>
@@ -457,6 +591,146 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles }: ChatInputA
         <div className='flex items-center space-x-2'>
         </div>
       </div>
+
+      {/* Modal สำหรับเลือกไฟล์จาก MinIO Database */}
+      {showDatabaseModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-3xl max-h-[80vh] overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-orange-500 to-pink-500 px-6 py-4 flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <CiDatabase size={28} className="text-white" />
+                <div>
+                  <h2 className="text-xl font-bold text-white">แหล่งข้อมูล</h2>
+                  <p className="text-orange-50 text-sm">เลือกไฟล์จากฐานข้อมูล MinIO</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowDatabaseModal(false);
+                }}
+                className="text-white hover:bg-white/20 rounded-full p-2 transition-colors"
+              >
+                <IoCloseOutline size={24} />
+              </button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center space-x-2">
+                {currentPath !== '/' && (
+                  <button
+                    onClick={handleGoBack}
+                    className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg font-medium transition-colors"
+                  >
+                    ← ย้อนกลับ
+                  </button>
+                )}
+                <div className="flex-1 relative">
+                  <IoSearchOutline className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="text"
+                    placeholder="ค้นหาแหล่งข้อมูลในโฟลเดอร์นี้..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none"
+                  />
+                </div>
+                <span className="text-sm text-gray-600 bg-gray-100 px-3 py-2 rounded-lg">
+                  📁 {currentPath === '/' ? 'หน้าแรก' : currentPath}
+                </span>
+              </div>
+              {selectedMinioFiles.size > 0 && (
+                <div className="mt-2 text-sm text-orange-600 bg-orange-50 px-3 py-1 rounded-lg inline-block">
+                  เลือกแล้ว {selectedMinioFiles.size} ไฟล์
+                </div>
+              )}
+            </div>
+
+            {/* File List */}
+            <div className="overflow-y-auto" style={{ maxHeight: 'calc(80vh - 280px)' }}>
+              {loadingFiles ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+                </div>
+              ) : filteredMinioFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                  <IoDocumentTextOutline size={48} className="mb-3" />
+                  <p>{searchQuery ? 'ไม่พบไฟล์ที่ค้นหา' : 'ไม่มีไฟล์ในโฟลเดอร์นี้'}</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {filteredMinioFiles.map((file, index) => (
+                    <div
+                      key={`${file.id}-${index}`}
+                      className={`flex items-center justify-between px-6 py-3 hover:bg-gray-50 transition-colors cursor-pointer ${
+                        file.type === 'file' && selectedMinioFiles.has(buildMinioKey(file)) ? 'bg-orange-50' : ''
+                      }`}
+                      onClick={() => {
+                        if (file.type === 'folder') {
+                          handleOpenFolder(file.name, file.path || currentPath);
+                        } else {
+                          toggleMinioFileSelection(buildMinioKey(file));
+                        }
+                      }}
+                    >
+                      <div className="flex items-center space-x-3 flex-1">
+                        {file.type === 'folder' ? (
+                          <IoFolderOutline size={24} className="text-yellow-500" />
+                        ) : (
+                          <IoDocumentTextOutline size={24} className="text-gray-400" />
+                        )}
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800">{file.name}</p>
+                          <p className="text-xs text-gray-500">
+                            {file.size ? `${(file.size / 1024).toFixed(2)} KB` : ''}
+                            {file.modifiedDate && ` • ${new Date(file.modifiedDate).toLocaleDateString('th-TH')}`}
+                            {searchQuery.trim() !== '' && file.path && ` • ${file.path}`}
+                          </p>
+                        </div>
+                      </div>
+                      {file.type === 'file' && (
+                        <div className="flex items-center space-x-2">
+                          {selectedMinioFiles.has(buildMinioKey(file)) ? (
+                            <div className="w-5 h-5 bg-orange-500 rounded flex items-center justify-center">
+                              <span className="text-white text-xs">✓</span>
+                            </div>
+                          ) : (
+                            <div className="w-5 h-5 border-2 border-gray-300 rounded"></div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowDatabaseModal(false);
+                }}
+                className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleConfirmMinioFiles}
+                disabled={selectedMinioFiles.size === 0}
+                className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                  selectedMinioFiles.size === 0
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-orange-500 hover:bg-orange-600 text-white'
+                }`}
+              >
+                ยืนยัน ({selectedMinioFiles.size})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

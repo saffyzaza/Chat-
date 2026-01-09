@@ -87,7 +87,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
              */}
             <div className={`
               h-screen flex flex-col justify-between 
-              bg-[#faf4e1ad] shadow-orange-100 shadow-lg 
+              bg-[#faf8f3da] shadow-orange-100 shadow-lg 
               transition-all duration-300 ease-in-out 
               overflow-hidden z-20
               absolute md:relative 
@@ -131,12 +131,12 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                             <IoChatbubblesOutline size={24} className="text-gray-600 shrink-0" />
                             <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>All Chats</span>
                         </button>
-                        <button onClick={
+                        {/* <button onClick={
                             () => window.location.href = '/project'
                         } className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoExtensionPuzzleOutline size={24} className="text-gray-600 shrink-0" />
                             <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>Project</span>
-                        </button>
+                        </button> */}
                         
                         {/* Admin Menu - แสดงเฉพาะ admin */}
                         {user?.role === 'admin' && (
@@ -193,14 +193,14 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                                                     size={16} 
                                                     className="text-gray-400 group-hover:text-orange-500 shrink-0 mt-0.5" 
                                                 />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-medium text-gray-700 truncate group-hover:text-orange-600">
+                                                <div className="flex-2 min-w-0">
+                                                    <p className="text-sm font-medium text-gray-800 truncate group-hover:text-orange-600">
                                                         {session.title}
                                                     </p>
-                                                    <p className="text-xs text-gray-400 truncate">
+                                                    <p className="text-xs text-gray-600 truncate">
                                                         {session.preview}
                                                     </p>
-                                                    <p className="text-xs text-gray-400 mt-0.5">
+                                                    <p className="text-xs text-gray-600 mt-0.5">
                                                         {new Date(session.updatedAt).toLocaleDateString('th-TH', {
                                                             day: 'numeric',
                                                             month: 'short',

@@ -412,21 +412,37 @@ export const addMessageToSession = async (
       
       if (response.ok) return;
       
-      // แสดง error details
-      let errorData;
+      // แสดง error details (รองรับ JSON หรือ text)
+      const contentType = response.headers.get('content-type') || '';
+      let errorPayload: any = null;
+      let errorText: string | null = null;
       try {
-        errorData = await response.json();
-      } catch (parseError) {
-        errorData = { message: 'Failed to parse error response', text: await response.text() };
+        if (contentType.includes('application/json')) {
+          errorPayload = await response.json();
+        } else {
+          errorText = await response.text();
+        }
+      } catch {
+        // ignore parse errors
       }
-      
-      console.error('Error adding message to API:', {
+
+      const detail = {
         status: response.status,
         statusText: response.statusText,
-        error: errorData || 'No error details available'
-      });
-      
-      throw new Error(`Failed to add message: ${response.status} ${response.statusText}`);
+        ...(errorPayload ? { error: errorPayload } : {}),
+        ...(errorText ? { errorText } : {})
+      };
+
+      // ใช้ stringify เพื่อหลีกเลี่ยงการแสดงผลเป็น {}
+      console.error('Error adding message to API:', JSON.stringify(detail, null, 2));
+
+      const messageHint =
+        (errorPayload && (errorPayload.message || errorPayload.error)) ||
+        (errorText ? errorText : '');
+
+      throw new Error(
+        `Failed to add message: ${response.status} ${response.statusText}${messageHint ? ` - ${messageHint}` : ''}`
+      );
     } catch (error) {
       console.error('Error adding message to API:', error instanceof Error ? error.message : String(error));
       throw error; // Re-throw เพื่อให้ caller จัดการได้

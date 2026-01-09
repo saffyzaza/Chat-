@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import Markdown from 'react-markdown';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Markdown } from './Markdown';
 
 
 interface TextTypeProps {
@@ -12,7 +12,9 @@ interface TextTypeProps {
   onComplete?: () => void; // Callback เมื่อพิมพ์เสร็จ
   onCharacterTyped?: () => void; // Callback เมื่อพิมพ์แต่ละตัว (สำหรับ scroll)
   className?: string;
+  contentClassName?: string; // ตกแต่งเนื้อหา Markdown ที่พิมพ์
   cursorChar?: string; // รูปแบบ cursor
+  cursorClassName?: string; // ตกแต่ง cursor
   deleteSpeed?: number; // ความเร็วในการลบ (ถ้า loop=true)
   pauseTime?: number; // เวลาหยุดก่อนพิมพ์ใหม่ (ถ้า loop=true)
   isComplete?: boolean; // บอกว่าพิมพ์เสร็จหรือยัง (ควบคุมจากภายนอก)
@@ -20,112 +22,106 @@ interface TextTypeProps {
 
 export const TextType: React.FC<TextTypeProps> = ({
   text,
-  typingSpeed = 20, // ค่าเริ่มต้น 20ms
+  typingSpeed = 25,
   loop = false,
   showCursor = false,
   onComplete,
   onCharacterTyped,
-  className = '',
-  cursorChar = '|',
-  deleteSpeed = 50,
-  pauseTime = 1000,
-  isComplete = false
+  className,
+  contentClassName,
+  cursorChar = '▍',
+  cursorClassName,
+  deleteSpeed = 15,
+  pauseTime = 800,
+  isComplete,
 }) => {
-  const [displayText, setDisplayText] = useState('');
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [displayed, setDisplayed] = useState('');
+  const [index, setIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [done, setDone] = useState(false);
+  const typingRef = useRef<NodeJS.Timeout | null>(null);
+  const wasCompletedExternally = useRef(false);
+  const targetTextRef = useRef(text);
 
-  // Effect สำหรับการพิมพ์และลบ
+  // Handle incoming streaming text without resetting when it's an extension
   useEffect(() => {
-    // ถ้าบอกว่าเสร็จแล้ว ให้แสดงข้อความเต็ม
-    if (isComplete) {
-      setDisplayText(text);
-      setCurrentIndex(text.length);
-      return;
+    const isContinuation = text.startsWith(displayed) && text.length >= displayed.length;
+    targetTextRef.current = text;
+    if (!isContinuation) {
+      setDisplayed('');
+      setIndex(0);
+      setIsDeleting(false);
+      setDone(false);
+      wasCompletedExternally.current = false;
     }
+  }, [text, displayed]);
 
-    // ถ้ากำลัง pause ให้รอก่อน
-    if (isPaused) {
-      const pauseTimer = setTimeout(() => {
-        setIsPaused(false);
-        setIsDeleting(true);
-      }, pauseTime);
-      return () => clearTimeout(pauseTimer);
+  // If parent says complete, snap to full text
+  useEffect(() => {
+    if (isComplete && !wasCompletedExternally.current) {
+      wasCompletedExternally.current = true;
+      if (typingRef.current) clearTimeout(typingRef.current);
+      setDisplayed(text);
+      setIndex(text.length);
+      setIsDeleting(false);
+      setDone(true);
     }
+  }, [isComplete, text]);
 
-    // ถ้ากำลังลบ
-    if (isDeleting) {
-      if (currentIndex === 0) {
-        setIsDeleting(false);
-        return;
-      }
+  // Typing effect
+  useEffect(() => {
+    if (done && !loop) return;
 
-      const deleteTimer = setTimeout(() => {
-        setDisplayText(text.substring(0, currentIndex - 1));
-        setCurrentIndex(currentIndex - 1);
-      }, deleteSpeed);
+    const tick = () => {
+      const target = targetTextRef.current;
+      if (!isDeleting) {
+        const nextIndex = Math.min(index + 1, target.length);
+        setDisplayed(target.slice(0, nextIndex));
+        setIndex(nextIndex);
+        if (onCharacterTyped) onCharacterTyped();
 
-      return () => clearTimeout(deleteTimer);
-    }
-
-    // ถ้ากำลังพิมพ์
-    if (currentIndex < text.length) {
-      const typingTimer = setTimeout(() => {
-        setDisplayText(text.substring(0, currentIndex + 1));
-        setCurrentIndex(currentIndex + 1);
-        
-        // เรียก callback เมื่อพิมพ์แต่ละตัว (สำหรับ auto-scroll)
-        if (onCharacterTyped) {
-          onCharacterTyped();
+        if (nextIndex === target.length) {
+          if (loop) {
+            typingRef.current = setTimeout(() => setIsDeleting(true), pauseTime);
+          } else {
+            // Only mark done if target isn't growing anymore
+            if (target === text) {
+              setDone(true);
+              if (onComplete) onComplete();
+            }
+          }
+          return;
         }
-      }, typingSpeed);
-
-      return () => clearTimeout(typingTimer);
-    } else {
-      // พิมพ์เสร็จแล้ว
-      if (onComplete) {
-        onComplete();
+      } else {
+        const nextIndex = Math.max(index - 1, 0);
+        setDisplayed(target.slice(0, nextIndex));
+        setIndex(nextIndex);
+        if (nextIndex === 0) setIsDeleting(false);
       }
 
-      // ถ้าเปิด loop ให้เตรียมลบ
-      if (loop) {
-        setIsPaused(true);
-      }
-    }
-  }, [
-    currentIndex,
-    text,
-    typingSpeed,
-    deleteSpeed,
-    pauseTime,
-    loop,
-    isDeleting,
-    isPaused,
-    onComplete,
-    onCharacterTyped,
-    isComplete
-  ]);
-  function smartMarkdownFormatter(text: string): string {
-  return text
-    .replace(/^#\s*/, '# ')
-    .replace(/(\d+\.\d+)\s/g, '\n\n### $1 ')
-    .replace(/(\n)?(?=\d+\.\s)/g, '\n\n## ')
-    .replace(/\*\*(.+?)\*\*(?!\n)/g, '**$1**\n\n')
-    .replace(/([^\n])\n(#{2,3}\s)/g, '$1\n\n$2')
-    .replace(/(#{2,3}\s[^\n]+)\n([^\n#])/g, '$1\n\n$2')
-    .replace(/[ ]{2,}/g, ' ')
-    .replace(/\n[ ]+/g, '\n')
-    .trim();
-  }
+      typingRef.current = setTimeout(tick, isDeleting ? deleteSpeed : typingSpeed);
+    };
+
+    typingRef.current = setTimeout(tick, isDeleting ? deleteSpeed : typingSpeed);
+    return () => {
+      if (typingRef.current) clearTimeout(typingRef.current);
+    };
+  }, [index, isDeleting, typingSpeed, deleteSpeed, loop, pauseTime, done, text, onCharacterTyped, onComplete]);
+
+  const cursor = showCursor ? (
+    <span className={`inline-block ml-1 align-baseline ${cursorClassName ?? 'animate-pulse'}`} aria-hidden>
+      {cursorChar}
+    </span>
+  ) : null;
+
+  const content = useMemo(() => displayed, [displayed]);
+
   return (
-    <Markdown>{smartMarkdownFormatter(displayText)}</Markdown>
-    
-    // <span className='text-blue-600' style={{ whiteSpace: 'pre-wrap' }}>
-    //   {displayText}
-    //   {showCursor && (
-    //     <span className="animate-pulse">{cursorChar}</span>
-    //   )}
-    // </span>
+    <div className={className}>
+      <div className={contentClassName}>
+        <Markdown>{content}</Markdown>
+      </div>
+      {cursor}
+    </div>
   );
 };

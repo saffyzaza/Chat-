@@ -432,14 +432,14 @@ export function FileManager({ refreshTrigger, onFolderSelect }: FileManagerProps
                         <>
                           <button
                             onClick={() => handleViewFile(file)}
-                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                            className="p-2 text-purple-600 hover:bg-purple-50 hover:text-purple-700 rounded-lg transition-colors font-medium"
                             title="ดูไฟล์"
                           >
                             <IoEyeOutline size={18} />
                           </button>
                           <button
                             onClick={() => handleDownload(file)}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            className="p-2 text-green-600 hover:bg-green-50 hover:text-green-700 rounded-lg transition-colors font-medium"
                             title="ดาวน์โหลด"
                           >
                             <IoDownloadOutline size={18} />

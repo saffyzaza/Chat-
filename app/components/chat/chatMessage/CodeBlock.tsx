@@ -16,7 +16,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
   }, [code, language]);
 
   return (
-    <div className="my-2 rounded-lg overflow-hidden border border-gray-200">
+    <div className="code-block my-2 rounded-lg overflow-hidden border border-gray-200">
       <div className="bg-gray-800 px-4 py-2 text-sm text-gray-300 font-mono">
         {language}
       </div>

@@ -5,9 +5,9 @@
 -- เพิ่ม admin user
 INSERT INTO users (name, email, password, role, created_at) 
 VALUES (
-    'alongkorn',
-    'alongkorn@gmail.com',
-    '0804200929saf',
+    'adminmusya',
+    'musya@gmail.com',
+    '12345678musya',
     'admin',
     NOW()
 )
@@ -19,7 +19,7 @@ DO UPDATE SET
 -- ตรวจสอบว่าเพิ่มสำเร็จ
 SELECT id, name, email, role, created_at, last_login 
 FROM users 
-WHERE email = 'alongkorn@gmail.com';
+WHERE email = 'musya@gmail.com';
 
 -- ===================================
 -- หมายเหตุ:

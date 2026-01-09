@@ -67,7 +67,8 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
     try {
       // อัปโหลดไฟล์ไปยัง API
       const formData = new FormData();
-      formData.append('file', upload.file);
+      // แนบไฟล์พร้อมชื่อไฟล์เดิม เพื่อรักษาชื่อภาษาไทย/UTF-8
+      formData.append('file', upload.file, upload.file.name);
       formData.append('path', selectedFolder);
       
       // เพิ่ม URL ของ API ภายนอก (ถ้ามี)

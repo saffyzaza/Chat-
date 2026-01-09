@@ -8,7 +8,7 @@ interface MobileHeaderProps {
 export const MobileHeader = ({ toggleSidebar }: MobileHeaderProps) => {
   return (
     // md:hidden = ซ่อนบนจอขนาดกลางและใหญ่
-    <div className="md:hidden flex items-center justify-between p-4 bg-white shadow-md sticky top-0 z-10">
+    <div className="md:hidden flex items-center justify-between p-1 bg-white shadow-md sticky top-0 z-10">
       
       {/* Hamburger Button */}
       <button 

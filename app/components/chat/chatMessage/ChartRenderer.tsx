@@ -12,6 +12,7 @@ interface ChartRendererProps {
         data: number[];
         backgroundColor?: string | string[];
         borderColor?: string | string[];
+        hoverBackgroundColor?: string | string[];
       }>;
     };
     options?: any;
@@ -21,6 +22,26 @@ interface ChartRendererProps {
 export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<any>(null);
+
+  // สร้าง gradient สีอ่อนสำหรับเติมใต้เส้นกราฟ
+  const createLineGradient = (ctx: CanvasRenderingContext2D, baseColor: string) => {
+    const gradient = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height);
+    // พยายามแปลงเป็น rgba ที่โปร่งใสเล็กน้อย
+    const hexToRgba = (hex: string, alpha: number) => {
+      const m = hex.replace('#', '');
+      const bigint = parseInt(m.length === 3 ? m.split('').map((c) => c + c).join('') : m, 16);
+      const r = (bigint >> 16) & 255;
+      const g = (bigint >> 8) & 255;
+      const b = bigint & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    };
+
+    const start = baseColor.startsWith('#') ? hexToRgba(baseColor, 0.25) : baseColor;
+    const end = baseColor.startsWith('#') ? hexToRgba(baseColor, 0.02) : baseColor;
+    gradient.addColorStop(0, start);
+    gradient.addColorStop(1, end);
+    return gradient;
+  };
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -33,16 +54,82 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    // สร้าง chart ใหม่
+    // สร้าง chart ใหม่ พร้อมค่าเริ่มต้นที่เป็นมิตรกับ mobile/flex
     // @ts-ignore
     if (typeof window !== 'undefined' && window.Chart) {
+      // ถ้าเป็น line chart เติมค่าดีฟอลต์ให้ดูสวยขึ้น
+      if (chartData.type === 'line') {
+        const defaultColor = '#3b82f6';
+        chartData.data.datasets = chartData.data.datasets.map((ds) => {
+          const borderColor = (Array.isArray(ds.borderColor) ? ds.borderColor[0] : ds.borderColor) || defaultColor;
+          return {
+            ...ds,
+            borderColor: ds.borderColor || borderColor,
+            borderWidth: (ds as any).borderWidth ?? 3,
+            tension: (ds as any).tension !== undefined ? (ds as any).tension : 0.35,
+            pointRadius: (ds as any).pointRadius ?? 4,
+            pointHoverRadius: (ds as any).pointHoverRadius ?? 6,
+            pointBackgroundColor: (ds as any).pointBackgroundColor ?? '#ffffff',
+            pointBorderColor: (ds as any).pointBorderColor ?? borderColor,
+            fill: (ds as any).fill ?? 'start',
+            backgroundColor: ds.backgroundColor || createLineGradient(ctx, borderColor || defaultColor),
+          } as any;
+        });
+      }
+
       // @ts-ignore
       chartInstanceRef.current = new window.Chart(ctx, {
         type: chartData.type,
         data: chartData.data,
-        options: chartData.options || {
+        options: {
           responsive: true,
-          maintainAspectRatio: false,
+          maintainAspectRatio: false, // ให้ canvas ยืดสูงตาม container
+          layout: {
+            padding: 12,
+          },
+          plugins: {
+            legend: {
+              position: 'top',
+              labels: {
+                font: {
+                  size: 14,
+                },
+              },
+            },
+            title: {
+              display: !!chartData.options?.plugins?.title?.text,
+              text: chartData.options?.plugins?.title?.text,
+              font: { size: 16 },
+            },
+            tooltip: {
+              titleFont: { size: 12 },
+              bodyFont: { size: 12 },
+              footerFont: { size: 12 },
+            },
+          },
+          interaction: {
+            intersect: false,
+            mode: 'index',
+          },
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 40,
+                minRotation: 0,
+                font: { size: 12 },
+              },
+              grid: { color: '#eee' },
+            },
+            y: {
+              ticks: {
+                font: { size: 12 },
+              },
+              grid: { color: '#eee' },
+              beginAtZero: true,
+            },
+          },
+          elements: chartData.type === 'line' ? { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } } : undefined,
+          ...(chartData.options || {}), // อนุญาตให้ override จาก JSON
         },
       });
     }
@@ -55,8 +142,10 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
   }, [chartData]);
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 my-4 w-full" style={{ minHeight: '500px' }}>
-      <canvas ref={canvasRef} style={{ maxHeight: '500px' }} />
+    <div className="chart-container bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-200 my-4 w-full flex flex-col">
+      <div className="relative w-full h-76 md:h-64 lg:h-80">
+        <canvas ref={canvasRef} className="w-full h-full" />
+      </div>
     </div>
   );
 };

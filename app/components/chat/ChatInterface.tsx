@@ -5,6 +5,7 @@ import { Message, MessageList } from './chatMessage/MessageList';
 import { ChatInputArea } from './inputArea/ChatInputArea';
 import { useChatHistory } from '../../hooks/useChatHistory';
 import { PROMPT } from './promptchat';
+import { getChatSession, saveChatSession } from '../../utils/chatStorage';
 
 // Import component และ type
 
@@ -21,32 +22,33 @@ const SuggestionCard = ({ title, description, onClick }: { title: string, descri
 
 const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: string) => void }) => (
   <>
-    <div className='flex flex-col items-center space-y-4 mb-8 mt-40'>
+    <div className="w-full flex flex-col items-center justify-center text-center gap-4  min-h-[30vh]">
       <img src="https://s.imgz.io/2025/12/27/Logo-thaihealth149429a17bc1ae40.webp" alt="Logo" className="h-20" />
       <p className="text-xl font-semibold text-gray-600">
         สำนักงานกองทุนสนับสนุนการสร้างเสริมสุขภาพ
       </p>
     </div>
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 px-2">
       <SuggestionCard
+        
         title="วิธีลดความเครียด"
-        description="ค้นหาเทคนิคและกิจกรรมผ่อนคลา"
-        onClick={() => onSuggestionClick("แนะนำวิธีลดความเครียดและเทคนิคผ่อนคลายที่ใช้ได้ในชีวิตประจำวัน")}
+        description="ค้นหาเทคนิคและกิจกรรมผ่อนคลาย"
+        onClick={() => onSuggestionClick("ช่วยแนะนำวิธีลดความเครียดที่ทำได้จริงในชีวิตประจำวัน เป็นข้อๆ พร้อมตัวอย่างกิจกรรมและเวลาใช้ ไม่ต้องทักทายหรือแนะนำตัว เริ่มด้วยหัวข้อวิธีทันที")}
       />
       <SuggestionCard
         title="อาหารสุขภาพ"
         description="ไอเดียเมนูสำหรับคนทำงาน"
-        onClick={() => onSuggestionClick("แนะนำเมนูอาหารสุขภาพที่เหมาะสำหรับคนทำงาน ทำง่าย มีประโยชน์")}
+        onClick={() => onSuggestionClick("ขอไอเดียเมนูอาหารสุขภาพสำหรับคนทำงานที่มีเวลา จำกัด 5 เมนู ทำง่าย วัตถุดิบหาง่าย ระบุแคลอรี่คร่าวๆ ไม่ต้องทักทาย เริ่มด้วยรายการเมนูเลย")}
       />
       <SuggestionCard
         title="ออกกำลังกายที่บ้าน"
         description="แนะนำท่าง่ายๆ ไม่ต้องใช้อุปกรณ์"
-        onClick={() => onSuggestionClick("แนะนำท่าออกกำลังกายง่ายๆ ที่สามารถทำได้ที่บ้านโดยไม่ต้องใช้อุปกรณ์")}
+        onClick={() => onSuggestionClick("แนะนำท่าออกกำลังกายง่ายๆ ที่ทำได้ที่บ้านโดยไม่ใช้อุปกรณ์ พร้อมตัวอย่างโปรแกรม 7 วันสำหรับมือใหม่ หลีกเลี่ยงการทักทาย ให้เริ่มตอบด้วยรายการท่าและคำแนะนำด้านความปลอดภัยทันที")}
       />
       <SuggestionCard
         title="ปรึกษาการเลิกบุหรี่"
         description="ขั้นตอนและเคล็ดลับในการเลิก"
-        onClick={() => onSuggestionClick("ต้องการคำปรึกษาเกี่ยวกับการเลิกบุหรี่ มีขั้นตอนและเคล็ดลับอะไรบ้าง")}
+        onClick={() => onSuggestionClick("ขอขั้นตอนการเลิกบุหรี่แบบเป็นลำดับ พร้อมเทคนิครับมืออาการอยากและแหล่งช่วยเหลือในไทย สรุปสั้น กระชับ ไม่ต้องทักทาย เริ่มด้วยขั้นตอนที่ 1")}
       />
     </div>
   </>
@@ -56,6 +58,46 @@ const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: stri
 export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef<boolean>(false);
+  const [followUps, setFollowUps] = useState<string[]>([]);
+  const [typingComplete, setTypingComplete] = useState<boolean>(false);
+
+  // helper: ดึง 3 คำถามต่อจากหัวข้อและลบออกจากเนื้อหาหลัก
+  const extractFollowUpsAndClean = (textRaw: string): { cleaned: string; followUps: string[] } => {
+    const text = textRaw || '';
+    const header = 'ไกด์แนะนำคำถามต่อไป';
+    const idx = text.lastIndexOf(header);
+    if (idx === -1) {
+      return { cleaned: text.trim(), followUps: [] };
+    }
+
+    const tail = text.slice(idx);
+    const lines = tail.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const arr: string[] = [];
+    for (const ln of lines) {
+      const m = ln.match(/^([0-9]+)[\.)]\s*(.+)$/);
+      if (m && m[2]) {
+        arr.push(m[2].trim());
+        if (arr.length >= 3) break;
+      }
+    }
+
+    const cleaned = text.slice(0, idx).trim().replace(/\n{3,}/g, '\n\n');
+    return { cleaned, followUps: arr.slice(0, 3) };
+  };
+
+  // helper: ลบตัวอักษรตกค้างท้ายข้อความ เช่น ** หรือเครื่องหมายคำพูด
+  const sanitizeTail = (textRaw: string): string => {
+    let t = textRaw || '';
+    // ลบช่องว่างและเครื่องหมายดอกจันท้ายข้อความ
+    t = t.replace(/[ \t]*(\*{1,3})+$/g, '');
+    // ลบเครื่องหมายคำพูดซ้ำๆ ท้ายข้อความ
+    t = t.replace(/[ \t]*["']+$/g, '');
+    // ลบบรรทัดว่างเกินจำเป็นท้ายข้อความ
+    t = t.replace(/\n{3,}$/g, '\n\n');
+    return t.trim();
+  };
 
   // Request throttling: เก็บเวลาของ request ล่าสุด
   const lastRequestTimeRef = useRef<number>(0);
@@ -66,7 +108,8 @@ export const ChatInterface = () => {
     currentSessionId,
     createNewSession,
     addMessageToSession,
-    loadSession
+    loadSession,
+    deleteSession
   } = useChatHistory();
 
   // โหลด session จาก URL parameter
@@ -136,6 +179,10 @@ export const ChatInterface = () => {
     }
 
     setIsLoading(true);
+    setFollowUps([]);
+    stopRequestedRef.current = false;
+    abortControllerRef.current = new AbortController();
+    const controller = abortControllerRef.current;
     console.log('📤 Sending chat:', { promptLength: prompt.length, images: imageUrls?.length, files: files?.length });
 
     // แปลง blob URLs เป็น base64 ถาวรสำหรับแสดงผล (แบบ parallel)
@@ -192,7 +239,7 @@ export const ChatInterface = () => {
     // ตั้งค่าข้อความที่จะแสดงผลบน UI
     setMessages(newMessages);
 
-    // สร้าง System Message
+    // สร้าง System Message (สำหรับอ้างอิงในอนาคต หากต้องการ)
     const systemMessage: Message = {
       role: 'system',
       content: SYSTEM_PROMPT
@@ -216,7 +263,8 @@ export const ChatInterface = () => {
           body: JSON.stringify({
             query: prompt,
             is_database: selectedTool === 'ฐานข้อมูล' ? true : false
-          })
+          }),
+          signal: controller?.signal
         });
 
         if (!planningResponse.ok) {
@@ -235,6 +283,7 @@ export const ChatInterface = () => {
         
 
         setMessages(prevMessages => [...prevMessages, aiMessage]);
+        setTypingComplete(false);
 
         console.log(aiMessage)
 
@@ -282,11 +331,31 @@ export const ChatInterface = () => {
 
         console.log('✅ Planning API stream completed. Total length:', accumulatedContent.length);
 
+        // ถ้าผู้ใช้กดหยุด ไม่บันทึกข้อความ และออกทันที
+        if (stopRequestedRef.current) {
+          setIsLoading(false);
+          return;
+        }
+
+        // ดึง follow-ups และลบส่วนหัวข้อออกจากข้อความหลัก
+        const { cleaned, followUps: fups } = extractFollowUpsAndClean(accumulatedContent);
+        const cleanedSanitized = sanitizeTail(cleaned);
+
+        // อัปเดตข้อความล่าสุดให้เป็นเวอร์ชันที่ถูกลบส่วน follow-ups ออก
+        setMessages(prev => {
+          const updated = [...prev];
+          if (updated[aiMessageIndex]) {
+            updated[aiMessageIndex] = { ...updated[aiMessageIndex], content: cleanedSanitized };
+          }
+          return updated;
+        });
+        setFollowUps(fups);
+
         // บันทึก AI response ลง localStorage
         if (sessionId) {
           await addMessageToSession(sessionId, {
             role: 'assistant',
-            content: accumulatedContent,
+            content: cleanedSanitized,
             timestamp: new Date().toISOString()
           });
         }
@@ -319,14 +388,8 @@ export const ChatInterface = () => {
       console.log('📡 Using google API endpoint:', process.env.NEXT_PUBLIC_ANALYTICS_ID);
 
 
-      // สร้าง contents สำหรับ Gemini API พร้อม conversation history
-      const contents = [];
-
-      // เพิ่ม system instruction ใน parts แรก
-      contents.push({
-        role: 'user',
-        parts: [{ text: SYSTEM_PROMPT }]
-      });
+      // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ไม่ยัดระบบเป็น user)
+      const contents: any[] = [];
 
       // เพิ่ม conversation history (ไม่เกิน 10 ข้อความล่าสุด เพื่อประหยัด token)
       // และไม่รวมรูปภาพจาก history เพื่อลดขนาด request
@@ -416,6 +479,10 @@ export const ChatInterface = () => {
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
+              system_instruction: {
+                role: 'system',
+                parts: [{ text: SYSTEM_PROMPT }]
+              },
               contents: contents,
               generationConfig: {
                 temperature: 0.7,
@@ -424,7 +491,7 @@ export const ChatInterface = () => {
                 maxOutputTokens: 8192,
               }
             }),
-            signal: AbortSignal.timeout(60000) // 60 second timeout
+            signal: controller?.signal
           });
 
           if (!response.ok) {
@@ -446,6 +513,11 @@ export const ChatInterface = () => {
           lastError = null;
           break;
         } catch (error: any) {
+          // ถ้าถูกยกเลิก ให้ยุติ retry ทันที
+          if (error?.name === 'AbortError' || stopRequestedRef.current) {
+            lastError = error;
+            break;
+          }
           lastError = error;
           retries--;
 
@@ -454,6 +526,12 @@ export const ChatInterface = () => {
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         }
+      }
+
+      if (stopRequestedRef.current) {
+        // ถูกยกเลิก ไม่ต้องทำต่อ
+        setIsLoading(false);
+        return;
       }
 
       if (lastError || !response) {
@@ -509,18 +587,32 @@ export const ChatInterface = () => {
       const codeRegex = /```(\w+)\n([\s\S]*?)```/g;
       let codeMatch;
       while ((codeMatch = codeRegex.exec(aiResponse)) !== null) {
-        const language = codeMatch[1];
+        const langRaw = codeMatch[1];
+        const language = (langRaw || '').toLowerCase();
         const code = codeMatch[2];
-        if (language !== 'json') {  // ไม่เอา json blocks ที่เป็น chart/table
-          codeBlocks.push({ code, language });
-          cleanedContent = cleanedContent.replace(codeMatch[0], '');
+
+        // ข้าม json (มีการประมวลผลสำหรับ chart/table ไว้แล้วด้านบน)
+        if (language === 'json') continue;
+
+        // กรณี AI ใส่ Markdown ในรั้วโค้ด ให้คลี่ออกเป็นข้อความ Markdown ปกติ
+        if (language === 'markdown' || language === 'md') {
+          cleanedContent = cleanedContent.replace(codeMatch[0], code);
+          continue;
         }
+
+        // เก็บ code อื่นๆ เป็น codeBlocks และตัดออกจากข้อความหลัก
+        codeBlocks.push({ code, language });
+        cleanedContent = cleanedContent.replace(codeMatch[0], '');
       }
 
-      // สร้าง AI message object
+      // ตัดหัวข้อคำถามต่อ และเตรียม follow-ups
+      const { cleaned: finalContent, followUps: fups } = extractFollowUpsAndClean(cleanedContent.trim());
+      const finalSanitized = sanitizeTail(finalContent);
+
+      // สร้าง AI message object (หลังลบส่วน follow-ups ออกแล้ว)
       const aiMessage: Message = {
         role: 'assistant',
-        content: cleanedContent.trim(),
+        content: finalSanitized,
         charts: charts.length > 0 ? charts : undefined,
         tables: tables.length > 0 ? tables : undefined,
         codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
@@ -529,6 +621,10 @@ export const ChatInterface = () => {
 
       // เพิ่มคำตอบของ AI ลงใน State
       setMessages(prevMessages => [...prevMessages, aiMessage]);
+      setTypingComplete(false);
+
+      // อัปเดต follow-ups เพื่อแสดงเป็นชิป
+      setFollowUps(fups);
 
       // บันทึก AI response ลง localStorage
       if (sessionId) {
@@ -539,36 +635,104 @@ export const ChatInterface = () => {
       }
 
     } catch (error: any) {
-      console.error("❌ Error fetching AI response:", error);
+      // ถ้าเป็นการยกเลิกโดยผู้ใช้ ไม่ต้องแสดง error
+      if (error?.name === 'AbortError' || stopRequestedRef.current) {
+        console.warn('🛑 Request aborted by user');
+      } else {
+        console.error("❌ Error fetching AI response:", error);
 
-      // สร้าง error message ที่เป็นมิตรกับผู้ใช้
-      let errorMessage = "ขออภัย เกิดข้อผิดพลาดในการติดต่อ AI";
+        // สร้าง error message ที่เป็นมิตรกับผู้ใช้
+        let errorMessage = "ขออภัย เกิดข้อผิดพลาดในการติดต่อ AI";
 
-      if (error.message?.includes('Failed to fetch')) {
-        errorMessage = "❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
-      } else if (error.message?.includes('429')) {
-        errorMessage = "⚠️ ขออภัย มีการใช้งานเกินกำหนด กรุณาลองใหม่อีกครั้งในอีกสักครู่";
-      } else if (error.message?.includes('timeout')) {
-        errorMessage = "⏱️ หมดเวลาในการรอคำตอบ กรุณาลองใหม่อีกครั้ง";
-      } else if (error.message?.includes('400')) {
-        errorMessage = "❌ ข้อมูลที่ส่งไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง";
-      } else if (error.message?.includes('401') || error.message?.includes('403')) {
-        errorMessage = "🔐 ไม่มีสิทธิ์เข้าถึง API กรุณาติดต่อผู้ดูแลระบบ";
-      } else if (error.message) {
-        errorMessage = `❌ เกิดข้อผิดพลาด: ${error.message}`;
-      }
-
-      setMessages(prevMessages => [
-        ...prevMessages,
-        {
-          role: 'assistant',
-          content: `${errorMessage}\n\n💡 **คำแนะนำ:**\n• ลองส่งข้อความอีกครั้ง\n• ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต\n• ถ้ายังไม่ได้ กรุณารีเฟรชหน้าเว็บ`
+        if (error.message?.includes('Failed to fetch')) {
+          errorMessage = "❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
+        } else if (error.message?.includes('429')) {
+          errorMessage = "⚠️ ขออภัย มีการใช้งานเกินกำหนด กรุณาลองใหม่อีกครั้งในอีกสักครู่";
+        } else if (error.message?.includes('timeout')) {
+          errorMessage = "⏱️ หมดเวลาในการรอคำตอบ กรุณาลองใหม่อีกครั้ง";
+        } else if (error.message?.includes('400')) {
+          errorMessage = "❌ ข้อมูลที่ส่งไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง";
+        } else if (error.message?.includes('401') || error.message?.includes('403')) {
+          errorMessage = "🔐 ไม่มีสิทธิ์เข้าถึง API กรุณาติดต่อผู้ดูแลระบบ";
+        } else if (error.message) {
+          errorMessage = `❌ เกิดข้อผิดพลาด: ${error.message}`;
         }
-      ]);
+
+        setMessages(prevMessages => [
+          ...prevMessages,
+          {
+            role: 'assistant',
+            content: `${errorMessage}\n\n💡 **คำแนะนำ:**\n• ลองส่งข้อความอีกครั้ง\n• ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต\n• ถ้ายังไม่ได้ กรุณารีเฟรชหน้าเว็บ`
+          }
+        ]);
+      }
     } finally {
       setIsLoading(false);
       console.log('✅ Request completed');
     }
+  };
+
+  // note: follow-ups ถูกสกัดและตั้งค่าเมื่อได้รับคำตอบแล้วด้านบน
+
+  // ฟังก์ชันหยุดการตอบ กู้คืนสภาพ และลบข้อความล่าสุด (user + assistant)
+  const handleStop = async () => {
+    stopRequestedRef.current = true;
+    try {
+      abortControllerRef.current?.abort();
+    } catch {}
+
+    // ถ้าเป็นคำถามแรกของแชท ให้ลบ history (ลบทั้ง session)
+    try {
+      const userMsgCount = messages.filter(m => m.role === 'user').length;
+      if (userMsgCount <= 1 && currentSessionId) {
+        try {
+          await deleteSession(currentSessionId);
+        } catch (e) {
+          console.warn('Failed to delete session on stop:', e);
+        }
+        setMessages([]);
+        setIsLoading(false);
+        return;
+      }
+    } catch {}
+
+    // ลบข้อความล่าสุดใน UI: assistant (ถ้ามี) และ user ที่เพิ่งส่ง
+    setMessages(prev => {
+      const updated = [...prev];
+      if (updated.length > 0 && updated[updated.length - 1].role === 'assistant') updated.pop();
+      if (updated.length > 0 && updated[updated.length - 1].role === 'user') updated.pop();
+      return updated;
+    });
+
+    // ลบใน session เก็บประวัติ (เฉพาะกรณี guest หรือ localStorage เท่านั้น เพื่อเลี่ยง API error)
+    try {
+      const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+      const isLoggedIn = !!(userStr && (() => { try { return JSON.parse(userStr)?.id; } catch { return null; } })());
+
+      if (!isLoggedIn && currentSessionId) {
+        const session = await getChatSession(currentSessionId);
+        if (session) {
+          if (session.messages.length > 0 && session.messages[session.messages.length - 1].role === 'assistant') {
+            session.messages.pop();
+          }
+          if (session.messages.length > 0 && session.messages[session.messages.length - 1].role === 'user') {
+            session.messages.pop();
+          }
+          session.messageCount = session.messages.filter(m => m.role !== 'system').length;
+          session.updatedAt = new Date().toISOString();
+          // อัปเดต preview จากข้อความล่าสุด
+          try {
+            const last = [...session.messages].reverse().find(m => m.role !== 'system');
+            session.preview = last ? (last.content.length <= 100 ? last.content : last.content.substring(0, 100) + '...') : '';
+          } catch {}
+          await saveChatSession(session);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to update local session on stop:', e);
+    }
+
+    setIsLoading(false);
   };
 
   // ฟังก์ชันเริ่มแชทใหม่
@@ -664,14 +828,8 @@ export const ChatInterface = () => {
     try {
       const API_KEY = "AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8";
 
-      // สร้าง contents สำหรับ Gemini API พร้อม conversation history
-      const contents = [];
-
-      // เพิ่ม system instruction
-      contents.push({
-        role: 'user',
-        parts: [{ text: SYSTEM_PROMPT }]
-      });
+      // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ระบบจะถูกส่งใน system_instruction)
+      const contents: any[] = [];
 
       // เพิ่ม conversation history จนถึงข้อความที่แก้ไข
       for (const msg of newMessages) {
@@ -712,7 +870,13 @@ export const ChatInterface = () => {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents })
+          body: JSON.stringify({
+            system_instruction: {
+              role: 'system',
+              parts: [{ text: SYSTEM_PROMPT }]
+            },
+            contents
+          })
         }
       );
 
@@ -742,6 +906,7 @@ export const ChatInterface = () => {
 
       // เพิ่มคำตอบของ AI ลงใน State
       setMessages(prevMessages => [...prevMessages, aiMessage]);
+      setTypingComplete(false);
 
       // บันทึก AI response ลง session
       if (currentSessionId) {
@@ -786,6 +951,11 @@ export const ChatInterface = () => {
               onRegenerate={handleRegenerate}
               onCopy={handleCopy}
               onEdit={handleEdit}
+              onTypingComplete={(index) => {
+                // แสดง followUps เฉพาะเมื่อข้อความล่าสุดของ AI พิมพ์เสร็จ
+                const isLast = index === messages.filter(m => m.role !== 'system').length - 1;
+                if (isLast) setTypingComplete(true);
+              }}
             />
           )}
         </div>
@@ -794,7 +964,21 @@ export const ChatInterface = () => {
       {/* ส่วน Input (จะอยู่ที่ด้านล่างเสมอ) */}
       <div className="w-full p-4 flex justify-center sticky bottom-0 bg-gray-100">
         <div className="w-full max-w-3xl">
-          <ChatInputArea onSend={handleSendChat} isLoading={isLoading} />
+          {followUps.length > 0 && typingComplete && (
+            <div className="mb-3 flex flex-wrap gap-1.5 md:gap-2">
+              {followUps.map((q, i) => (
+                <button
+                  key={`fu-${i}`}
+                  onClick={() => handleSendChat(q)}
+                  className="px-2.5 py-1 md:px-3 md:py-1.5 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs md:text-sm shadow-sm leading-tight break-words max-w-full"
+                  title="คลิกเพื่อถามต่อ"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+          <ChatInputArea onSend={handleSendChat} isLoading={isLoading} onStop={handleStop} />
         </div>
       </div>
     </div>

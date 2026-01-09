@@ -22,10 +22,11 @@ interface MessageListProps {
   onRegenerate?: (messageIndex: number) => void; // Callback สำหรับ regenerate
   onCopy?: (content: string) => void; // Callback สำหรับ copy
   onEdit?: (messageIndex: number, content: string) => void; // Callback สำหรับแก้ไขข้อความ
+  onTypingComplete?: (messageIndex: number) => void; // Callback เมื่อข้อความจาก AI พิมพ์เสร็จ
 }
 
 // 2. Component สำหรับแสดงผลข้อความ
-export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit }: MessageListProps) => {
+export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit, onTypingComplete }: MessageListProps) => {
   
   // สร้าง ref สำหรับ auto-scroll
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -51,20 +52,47 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit 
   // 3. กรอง message ที่เป็น 'system' ออก ไม่ต้องแสดงผล
   const visibleMessages = messages.filter(msg => msg.role !== 'system');
   
-  // ฟังก์ชัน Copy
+  // ฟังก์ชัน Copy (ปลอดภัยทั้ง HTTP/ไม่รองรับ clipboard API)
   const handleCopy = async (content: string, index: number) => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopiedIndex(index);
-      if (onCopy) {
-        onCopy(content);
+    const tryNativeClipboard = async () => {
+      if (typeof navigator === 'undefined') return false;
+      // clipboard API ใช้ได้เฉพาะ secure context ส่วนใหญ่ (https)
+      // และบางเบราว์เซอร์/สิทธิ์อาจไม่เปิดให้ใช้
+      try {
+        // @ts-ignore
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(content);
+          return true;
+        }
+      } catch {}
+      return false;
+    };
+
+    const tryLegacyCopy = () => {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = content;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.style.pointerEvents = 'none';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return ok;
+      } catch {
+        return false;
       }
-      // Reset สถานะหลัง 2 วินาที
-      setTimeout(() => {
-        setCopiedIndex(null);
-      }, 2000);
-    } catch (error) {
-      console.error('Failed to copy:', error);
+    };
+
+    const ok = (await tryNativeClipboard()) || tryLegacyCopy();
+    if (ok) {
+      setCopiedIndex(index);
+      if (onCopy) onCopy(content);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } else {
+      console.error('Failed to copy: Clipboard API not available');
     }
   };
   
@@ -111,11 +139,11 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit 
           onMouseEnter={() => setHoveredIndex(index)}
           onMouseLeave={() => setHoveredIndex(null)}
         >
-          <div className="relative group w-full max-w-full">
-            <div className={`${msg.role === 'user' ? 'max-w-xl ml-auto' : 'w-full max-w-full'} p-4 rounded-xl ${
+          <div className={`relative group w-full max-w-full ${msg.role === 'user' ? 'flex justify-end' : ''}`}>
+            <div className={`${msg.role === 'user' ? 'inline-block max-w-xl' : 'w-full max-w-full'} p-2 rounded-xl ${
               msg.role === 'user' 
-                ? 'bg-[#eb6f45f1] text-white' 
-                : 'bg-gray-200 text-gray-800'
+                ? 'bg-[#eb6f45f1] shadow shadow-amber-600 text-white' 
+                : 'bg-[#f7f7f7b4] shadow shadow-gray-300 text-gray-800'
             }`}>
               {/* แสดงรูปภาพถ้ามี */}
               {msg.images && msg.images.length > 0 && (
@@ -209,6 +237,9 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit 
                         behavior: 'smooth', 
                         block: 'end' 
                       });
+                    }}
+                    onComplete={() => {
+                      if (onTypingComplete) onTypingComplete(index);
                     }}
                   />
                 )

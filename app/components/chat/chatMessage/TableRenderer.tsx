@@ -9,18 +9,28 @@ interface TableData {
 
 interface TableRendererProps {
   tableData: TableData;
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
 }
 
-export const TableRenderer: React.FC<TableRendererProps> = ({ tableData }) => {
+export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 'md', className }) => {
+  const sizeClass = size === 'sm' ? 'ai-table-sm' : size === 'lg' ? 'ai-table-lg' : '';
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 my-2 overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
+    <div
+      className={`bg-white rounded-lg shadow-xl border border-gray-200 my-2 overflow-auto max-h-[60vh] ${
+        className ?? ''
+      }`}
+    >
+      <table
+        className={`ai-table ${sizeClass} w-full table-auto min-w-[640px] divide-y divide-gray-200`}
+        style={{ fontSize: '0.8rem' }}
+      >
         <thead style={{ background: 'linear-gradient(to right, rgb(168 85 247), rgb(147 51 234))' }}>
           <tr>
             {tableData.headers.map((header, index) => (
               <th
                 key={index}
-                className="px-6 py-3 text-left text-sm font-semibold text-white tracking-wider"
+                className="px-4 py-3 text-center font-semibold text-white tracking-wide"
               >
                 {header}
               </th>
@@ -33,7 +43,7 @@ export const TableRenderer: React.FC<TableRendererProps> = ({ tableData }) => {
               {row.map((cell, cellIndex) => (
                 <td
                   key={cellIndex}
-                  className="px-6 py-4 whitespace-nowrap text-sm text-gray-700"
+                  className="px-4 py-3 whitespace-normal break-words text-gray-700"
                 >
                   {cell}
                 </td>
