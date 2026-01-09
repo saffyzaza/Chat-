@@ -252,6 +252,12 @@ export const ChatInterface = () => {
       // ตรวจสอบว่าเลือก "เขียนแผนงาน" หรือไม่
       if (selectedTool === 'เขียนแผนงาน' || selectedTool === 'ฐานข้อมูล') {
         console.log('📝 Using Planning API for:', prompt);
+        const filePaths = (files ?? []).map(f => {
+          const anyFile = f as any;
+          return anyFile.webkitRelativePath || anyFile.relativePath || f.name;
+        });
+        console.log('📡 Planning file paths:', filePaths);
+        console.log('📡 Planning with files:', files);
       
 
         // เรียก API ใหม่ (SSE stream)
@@ -263,6 +269,7 @@ export const ChatInterface = () => {
           body: JSON.stringify({
             query: prompt,
             is_database: selectedTool === 'ฐานข้อมูล' ? true : false
+            
           }),
           signal: controller?.signal
         });
@@ -826,7 +833,7 @@ export const ChatInterface = () => {
     console.log('📤 Re-sending edited message');
 
     try {
-      const API_KEY = "AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8";
+      const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
       // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ระบบจะถูกส่งใน system_instruction)
       const contents: any[] = [];

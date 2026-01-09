@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
 
     // อัปโหลดไฟล์ไปยัง MinIO
     const objectName = buildObjectName(folderPath, file.name);
+    const relativePath = `/${objectName}`; // path inside bucket from root
     
     await minioClient.putObject(
       MINIO_BUCKET,
@@ -186,6 +187,9 @@ export async function POST(request: NextRequest) {
           externalFormData.append('size', String(file.size));
           externalFormData.append('type', file.type);
 
+          // แนบ relative path ไปกับไฟล์เพื่อบอกตำแหน่งภายในระบบ
+          externalFormData.append('relativePath', relativePath);
+
           const response = await fetch(externalApiUrl, {
             method: 'POST',
             body: externalFormData,
@@ -208,6 +212,7 @@ export async function POST(request: NextRequest) {
       success: true, 
       filename: file.name,
       path: folderPath,
+      relativePath,
       externalApi: externalApiResponse ? {
         success: true,
         data: externalApiResponse

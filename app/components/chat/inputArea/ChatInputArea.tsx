@@ -286,7 +286,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
         const response = await fetch(`/api/files/download?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`);
         if (response.ok) {
           const blob = await response.blob();
-          const file = new File([blob], name, { type: blob.type });
+          const file = new File([blob], path+name, { type: blob.type });
           return file;
         }
       } catch (error) {
