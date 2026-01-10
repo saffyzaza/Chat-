@@ -250,14 +250,17 @@ export const ChatInterface = () => {
 
     try {
       // ตรวจสอบว่าเลือก "เขียนแผนงาน" หรือไม่
-      if (selectedTool === 'เขียนแผนงาน' || selectedTool === 'ฐานข้อมูล') {
+      if (selectedTool === 'เขียนแผนงาน' || selectedTool === 'ฐานข้อมูล' || selectedTool === 'สร้างกราฟ' || selectedTool === 'สรุปรายงาน' || selectedTool === 'ขอคำปรึกษา' || selectedTool === 'เทียบข้อมูล') {
         console.log('📝 Using Planning API for:', prompt);
+        console.log('📝 Selected tool:', selectedTool);
         const filePaths = (files ?? []).map(f => {
           const anyFile = f as any;
           return anyFile.webkitRelativePath || anyFile.relativePath || f.name;
         });
-        console.log('📡 Planning file paths:', filePaths);
-        console.log('📡 Planning with files:', files);
+        // console.log('📡 Planning file paths:', filePaths);
+        // console.log('📡 Planning with files:', files);
+        
+        
       
 
         // เรียก API ใหม่ (SSE stream)
@@ -269,6 +272,7 @@ export const ChatInterface = () => {
           body: JSON.stringify({
             query: prompt,
             is_database: selectedTool === 'ฐานข้อมูล' ? true : false
+            , files: filePaths
             
           }),
           signal: controller?.signal

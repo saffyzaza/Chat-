@@ -22,7 +22,7 @@ interface TextTypeProps {
 
 export const TextType: React.FC<TextTypeProps> = ({
   text,
-  typingSpeed = 25,
+  typingSpeed = 2,
   loop = false,
   showCursor = false,
   onComplete,
@@ -116,6 +116,19 @@ export const TextType: React.FC<TextTypeProps> = ({
 
   const content = useMemo(() => displayed, [displayed]);
 
+
+  function smartMarkdownFormatter(text: string): string {
+  return text
+    .replace(/^#\s*/, '# ')
+    .replace(/(\d+\.\d+)\s/g, '\n\n### $1 ')
+    .replace(/(\n)?(?=\d+\.\s)/g, '\n\n## ')
+    .replace(/\*\*(.+?)\*\*(?!\n)/g, '**$1**\n\n')
+    .replace(/([^\n])\n(#{2,3}\s)/g, '$1\n\n$2')
+    .replace(/(#{2,3}\s[^\n]+)\n([^\n#])/g, '$1\n\n$2')
+    .replace(/[ ]{2,}/g, ' ')
+    .replace(/\n[ ]+/g, '\n')
+    .trim();
+}
   return (
     <div className={className}>
       <div className={contentClassName}>

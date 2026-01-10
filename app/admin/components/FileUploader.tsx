@@ -1,7 +1,13 @@
-'use client';
+"use client";
 
-import { useState, useRef } from 'react';
-import { IoAddOutline, IoClose, IoDocumentOutline, IoCheckmarkCircle } from 'react-icons/io5';
+import path from "path";
+import { useState, useRef } from "react";
+import {
+  IoAddOutline,
+  IoClose,
+  IoDocumentOutline,
+  IoCheckmarkCircle,
+} from "react-icons/io5";
 
 interface FileUploaderProps {
   onUploadSuccess?: () => void;
@@ -13,11 +19,15 @@ interface UploadedFile {
   id: string;
   file: File;
   progress: number;
-  status: 'uploading' | 'success' | 'error';
+  status: "uploading" | "success" | "error";
   error?: string;
 }
 
-export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalApiUrl }: FileUploaderProps) {
+export function FileUploader({
+  onUploadSuccess,
+  selectedFolder = "/",
+  externalApiUrl,
+}: FileUploaderProps) {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,7 +45,7 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const files = Array.from(e.dataTransfer.files);
     handleFiles(files);
   };
@@ -52,10 +62,10 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
       id: `${Date.now()}-${index}-${Math.random()}`,
       file,
       progress: 0,
-      status: 'uploading' as const,
+      status: "uploading" as const,
     }));
 
-    setUploadedFiles(prev => [...prev, ...newUploads]);
+    setUploadedFiles((prev) => [...prev, ...newUploads]);
 
     // จำลองการอัปโหลด
     newUploads.forEach((upload) => {
@@ -68,37 +78,51 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
       // อัปโหลดไฟล์ไปยัง API
       const formData = new FormData();
       // แนบไฟล์พร้อมชื่อไฟล์เดิม เพื่อรักษาชื่อภาษาไทย/UTF-8
-      formData.append('file', upload.file, upload.file.name);
-      formData.append('path', selectedFolder);
-      
+      formData.append("file", upload.file, upload.file.name);
+      formData.append("path", selectedFolder);
+
       // เพิ่ม URL ของ API ภายนอก (ถ้ามี)
       if (externalApiUrl) {
-        formData.append('apiUrl', externalApiUrl);
+        formData.append("apiUrl", externalApiUrl);
       }
+      // console.log('path', selectedFolder+upload.file.name);
+      // console.log('file name', formData);
+      
 
-      const response = await fetch('/api/files', {
-        method: 'POST',
+      const response = await fetch("/api/files", {
+        method: "POST",
         body: formData,
       });
 
+      const apiresponserag = process.env.NEXT_PUBLIC_RAG_API_KEY;
+
+      const responseRag = await fetch(
+        `${apiresponserag}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      
       if (!response.ok) {
-        throw new Error('Upload failed');
+        throw new Error("Upload failed");
       }
 
       const result = await response.json();
 
       // อัปเดทสถานะเป็นสำเร็จ
-      setUploadedFiles(prev =>
-        prev.map(file =>
+      setUploadedFiles((prev) =>
+        prev.map((file) =>
           file.id === upload.id
-            ? { ...file, progress: 100, status: 'success' }
+            ? { ...file, progress: 100, status: "success" }
             : file
         )
       );
 
       // แสดงผลลัพธ์จาก external API (ถ้ามี)
       if (result.externalApi?.success) {
-        console.log('External API Response:', result.externalApi.data);
+        console.log("External API Response:", result.externalApi.data);
       }
 
       // เรียก callback เพื่อให้ FileManager รีเฟรช
@@ -106,25 +130,25 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
         onUploadSuccess();
       }
     } catch (error) {
-      console.error('Error uploading file:', error);
-      
+      console.error("Error uploading file:", error);
+
       // อัปเดทสถานะเป็นล้มเหลว
-      setUploadedFiles(prev =>
-        prev.map(file =>
-          file.id === upload.id
-            ? { ...file, status: 'error' }
-            : file
+      setUploadedFiles((prev) =>
+        prev.map((file) =>
+          file.id === upload.id ? { ...file, status: "error" } : file
         )
       );
     }
   };
 
   const removeFile = (id: string) => {
-    setUploadedFiles(prev => prev.filter(file => file.id !== id));
+    setUploadedFiles((prev) => prev.filter((file) => file.id !== id));
   };
 
   const clearCompleted = () => {
-    setUploadedFiles(prev => prev.filter(file => file.status !== 'success'));
+    setUploadedFiles((prev) =>
+      prev.filter((file) => file.status !== "success")
+    );
   };
 
   const formatFileSize = (bytes: number) => {
@@ -150,7 +174,9 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
           <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white px-6 py-4 flex justify-between items-center border-b border-gray-200">
-              <h2 className="text-lg font-medium text-gray-700">📤 อัปโหลดไฟล์</h2>
+              <h2 className="text-lg font-medium text-gray-700">
+                📤 อัปโหลดไฟล์
+              </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="text-gray-400 hover:text-gray-600 p-2 rounded-lg transition-colors"
@@ -164,7 +190,8 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
               {/* Folder Info */}
               <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
                 <p className="text-sm text-gray-600">
-                  <strong className="text-gray-700">📁 โฟลเดอร์ปลายทาง:</strong> <span className="font-semibold">{selectedFolder}</span>
+                  <strong className="text-gray-700">📁 โฟลเดอร์ปลายทาง:</strong>{" "}
+                  <span className="font-semibold">{selectedFolder}</span>
                 </p>
               </div>
 
@@ -176,8 +203,8 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
                 onClick={() => fileInputRef.current?.click()}
                 className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-all ${
                   isDragging
-                    ? 'border-orange-500 bg-orange-50'
-                    : 'border-gray-300 hover:border-orange-400 hover:bg-gray-50'
+                    ? "border-orange-500 bg-orange-50"
+                    : "border-gray-300 hover:border-orange-400 hover:bg-gray-50"
                 }`}
               >
                 <div className="w-16 h-16 mx-auto mb-4 bg-orange-500 rounded-full flex items-center justify-center">
@@ -205,7 +232,7 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
                     <h3 className="text-sm font-medium text-gray-700">
                       ไฟล์ที่อัปโหลด ({uploadedFiles.length})
                     </h3>
-                    {uploadedFiles.some(f => f.status === 'success') && (
+                    {uploadedFiles.some((f) => f.status === "success") && (
                       <button
                         onClick={clearCompleted}
                         className="text-sm text-orange-500 hover:text-orange-600 font-medium"
@@ -221,8 +248,11 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
                         key={upload.id}
                         className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200"
                       >
-                        <IoDocumentOutline className="text-orange-500 flex-shrink-0" size={24} />
-                        
+                        <IoDocumentOutline
+                          className="text-orange-500 flex-shrink-0"
+                          size={24}
+                        />
+
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">
                             {upload.file.name}
@@ -230,13 +260,13 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
                           <p className="text-xs text-gray-500">
                             {formatFileSize(upload.file.size)}
                           </p>
-                          
-                          {upload.status === 'uploading' && (
+
+                          {upload.status === "uploading" && (
                             <div className="mt-2">
                               <div className="w-full bg-gray-200 rounded-full h-2">
                                 <div
                                   className="bg-orange-500 h-2 rounded-full transition-all"
-                                  style={{ width: '100%' }}
+                                  style={{ width: "100%" }}
                                 />
                               </div>
                               <p className="text-xs text-orange-500 mt-1 font-medium">
@@ -244,19 +274,22 @@ export function FileUploader({ onUploadSuccess, selectedFolder = '/', externalAp
                               </p>
                             </div>
                           )}
-                          
-                          {upload.status === 'error' && (
+
+                          {upload.status === "error" && (
                             <p className="text-xs text-red-500 mt-1">
                               อัปโหลดล้มเหลว
                             </p>
                           )}
                         </div>
 
-                        {upload.status === 'success' && (
-                          <IoCheckmarkCircle className="text-green-500 flex-shrink-0" size={20} />
+                        {upload.status === "success" && (
+                          <IoCheckmarkCircle
+                            className="text-green-500 flex-shrink-0"
+                            size={20}
+                          />
                         )}
-                        
-                        {upload.status === 'error' && (
+
+                        {upload.status === "error" && (
                           <span className="text-red-500 flex-shrink-0">✕</span>
                         )}
 
