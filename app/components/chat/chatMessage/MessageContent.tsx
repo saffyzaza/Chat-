@@ -8,6 +8,7 @@ interface MessageContentProps {
   content: string;
   isUser: boolean;
   isNewMessage?: boolean; // กำหนดว่าเป็นข้อความใหม่หรือไม่ (สำหรับ animation)
+  noTyping?: boolean; // ปิดการใช้งาน TextType ชั่วคราว (เช่น ขณะใช้ Planning API)
   onCharacterTyped?: () => void; // Callback สำหรับ auto-scroll
   onComplete?: () => void; // Callback เมื่อพิมพ์ข้อความเสร็จสิ้น
 }
@@ -16,6 +17,7 @@ export const MessageContent: React.FC<MessageContentProps> = ({
   content, 
   isUser, 
   isNewMessage = false,
+  noTyping = false,
   onCharacterTyped,
   onComplete
 }) => {
@@ -36,7 +38,7 @@ export const MessageContent: React.FC<MessageContentProps> = ({
     );
   }
   
-  // ถ้าเป็นข้อความใหม่จาก AI ให้ใช้ TextType animation
+  // ถ้าเป็นข้อความใหม่จาก AI ให้ใช้ TextType animation (ยกเว้นกรณีถูกสั่งปิดไว้)
   if (isNewMessage) {
     if (shouldRenderTableImmediately) {
       return (
@@ -45,15 +47,23 @@ export const MessageContent: React.FC<MessageContentProps> = ({
         </div>
       );
     }
+    if (!noTyping) {
+      return (
+        <TextType 
+          text={content} 
+          typingSpeed={10}
+          showCursor={false}
+          onCharacterTyped={onCharacterTyped}
+          onComplete={onComplete}
+          className="text-gray-800"
+        />
+      );
+    }
+    // เมื่อปิดการใช้งาน TextType ให้แสดงผลทันทีด้วย Markdown
     return (
-      <TextType 
-        text={content} 
-        typingSpeed={10}
-        showCursor={false}
-        onCharacterTyped={onCharacterTyped}
-        onComplete={onComplete}
-        className="text-gray-800"
-      />
+      <div className="text-gray-800">
+        <Markdown>{content}</Markdown>
+      </div>
     );
   }
   

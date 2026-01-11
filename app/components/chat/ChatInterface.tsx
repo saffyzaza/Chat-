@@ -257,8 +257,8 @@ export const ChatInterface = () => {
           const anyFile = f as any;
           return anyFile.webkitRelativePath || anyFile.relativePath || f.name;
         });
-        // console.log('📡 Planning file paths:', filePaths);
-        // console.log('📡 Planning with files:', files);
+        console.log('📡 Planning file paths:', filePaths);
+        console.log('📡 Planning with files:', files);
         
         
       
@@ -287,7 +287,8 @@ export const ChatInterface = () => {
         const aiMessage: Message = {
           role: 'assistant',
           content: '',
-          isNewMessage: true
+          isNewMessage: true,
+          noTyping: true // ปิด TextType ชั่วคราวสำหรับข้อความจาก Planning API
         };
 
         
@@ -320,7 +321,7 @@ export const ChatInterface = () => {
                   const content = line.slice(6); // ตัด "data: " ออก
                   if (content && content !== '[DONE]' && content.trim() !== '') {
                     accumulatedContent += content;
-                    // console.log('🧩 Received chunk:', content);
+                    console.log('🧩 Received chunk:', content);
                     // อัปเดต UI แบบ real-time
                     setMessages(prevMessages => {
                   

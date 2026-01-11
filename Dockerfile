@@ -1,50 +1,30 @@
-# Stage 1: Dependencies
-FROM node:24-alpine AS deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
-
-# Copy package files
-COPY package.json package-lock.json* ./
-RUN npm ci
-
-# Stage 2: Builder
 FROM node:24-alpine AS builder
 WORKDIR /app
 
-# Copy dependencies from deps stage
-COPY --from=deps /app/node_modules ./node_modules
+# Copy package.json เข้าไปใน Container เพื่อติดตั้ง Package ต่างๆ
+COPY package.json ./
+
+# ติดตั้ง Package ต่างๆที่ต้องใช้
+RUN npm install
+
+# Copy code ส่วนที่เหลือเช้าไปใน Container
 COPY . .
 
-# Set environment variables for build
-ENV NEXT_TELEMETRY_DISABLED=1
-
-# Build the application
+# Build Next application
 RUN npm run build
 
-# Stage 3: Runner
+# เราควรจะใช้ Base Image ตัวเดียวกับ Builder ตัวก่อนหน้าเพื่อไม่ให้มีปัญหาเรื่อง Version
 FROM node:24-alpine AS runner
 WORKDIR /app
 
+# กำหนด Environment เป็น Production
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 
-# Create a non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy necessary files from builder
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
-# Set correct permissions
-RUN chown -R nextjs:nodejs /app
-
-USER nextjs
+# Copy output และ dependencies จาก Builder
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
 
 EXPOSE 3000
-
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
-CMD ["node", "server.js"]
+# Start Next application
+CMD ["npm", "run", "start"]

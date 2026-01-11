@@ -14,6 +14,7 @@ export interface Message {
   tables?: any[]; // ข้อมูลตาราง
   codeBlocks?: Array<{ code: string; language: string }>; // Code blocks
   isNewMessage?: boolean; // ใช้เพื่อกำหนดว่าเป็นข้อความใหม่ที่ต้องใช้ TextType animation หรือไม่
+  noTyping?: boolean; // ปิดการใช้งาน TextType ชั่วคราวสำหรับข้อความนี้ (เช่น เมื่อใช้ Planning API)
 }
 
 interface MessageListProps {
@@ -231,6 +232,7 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
                     content={msg.content} 
                     isUser={msg.role === 'user'}
                     isNewMessage={msg.isNewMessage}
+                    noTyping={msg.noTyping}
                     onCharacterTyped={() => {
                       // Auto-scroll ทุกครั้งที่มีการพิมพ์ตัวอักษรใหม่
                       messagesEndRef.current?.scrollIntoView({ 
