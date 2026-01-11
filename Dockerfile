@@ -1,30 +1,42 @@
+# Stage 1: Builder
 FROM node:24-alpine AS builder
 WORKDIR /app
 
-# Copy package.json เข้าไปใน Container เพื่อติดตั้ง Package ต่างๆ
-COPY package.json ./
-
-# ติดตั้ง Package ต่างๆที่ต้องใช้
+# ติดตั้ง dependencies สำหรับการ Build เท่านั้น
+COPY package*.json ./
 RUN npm install
 
-# Copy code ส่วนที่เหลือเช้าไปใน Container
 COPY . .
 
-# Build Next application
+# ปิด Telemetry เพื่อความเร็วและความเป็นส่วนตัว
+ENV NEXT_TELEMETRY_DISABLED=1
+
 RUN npm run build
 
-# เราควรจะใช้ Base Image ตัวเดียวกับ Builder ตัวก่อนหน้าเพื่อไม่ให้มีปัญหาเรื่อง Version
+# Stage 2: Runner (Image จะเล็กลงมาก)
 FROM node:24-alpine AS runner
 WORKDIR /app
 
-# กำหนด Environment เป็น Production
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Copy output และ dependencies จาก Builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/node_modules ./node_modules
+# สร้าง User เพื่อความปลอดภัย (ไม่รันด้วย root)
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# COPY ไฟล์เฉพาะที่จำเป็นจาก Standalone output
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+# ตั้งค่าสิทธิ์ไฟล์
+RUN chown -R nextjs:nodejs /app
+USER nextjs
 
 EXPOSE 3000
-# Start Next application
-CMD ["npm", "run", "start"]
+ENV PORT=3000
+
+
+
+# รันด้วย node โดยตรง ไม่ต้องผ่าน npm หรือ package.json
+CMD ["node", "server.js"]
