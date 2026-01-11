@@ -104,6 +104,8 @@ export function FileUploader({
         }
       );
 
+      console.log(`${apiresponserag}/upload`);
+
       
       if (!response.ok) {
         throw new Error("Upload failed");

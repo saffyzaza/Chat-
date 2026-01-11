@@ -1,6 +1,37 @@
 version: '3.9'
 
 services:
+
+
+  # env.local Database
+  app:
+    build: .
+    container_name: chat_aio_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_GOOGLE_API_KEY: AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8
+      NEXT_PUBLIC_RAG_API_KEY: https://api.iaaaiksu.com
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: chat-aio
+      DB_USER: postgres
+      DB_PASSWORD: 1234
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: false
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: uploads
+    ports:
+      - "3000:3000"
+
+      
+      
+
   postgres:
     image: postgres:16
     container_name: chat_aio_postgres
