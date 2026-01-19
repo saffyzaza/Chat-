@@ -10,7 +10,7 @@ import {
 } from "react-icons/io5";
 
 interface FileUploaderProps {
-  onUploadSuccess?: () => void;
+  onUploadSuccess?: (data: { fileName: string; apaData: any }) => void;
   selectedFolder?: string;
   externalApiUrl?: string; // URL ของ API ภายนอกที่ต้องการส่งไฟล์ไปด้วย
 }
@@ -94,17 +94,8 @@ export function FileUploader({
         body: formData,
       });
 
-      const apiresponserag = process.env.NEXT_PUBLIC_RAG_API_KEY;
-
-      const responseRag = await fetch(
-        `${apiresponserag}/upload`,
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
-
-      console.log(`${apiresponserag}/upload`);
+      // หมายเหตุ: การส่งต่อไปยัง RAG ภายนอกให้ทำฝั่งเซิร์ฟเวอร์เพื่อหลีกเลี่ยง CORS
+      // ส่งค่า externalApiUrl ผ่าน formData แล้วให้ /api/files เป็นผู้เรียกแทน
 
       
       if (!response.ok) {
@@ -122,14 +113,52 @@ export function FileUploader({
         )
       );
 
-      // แสดงผลลัพธ์จาก external API (ถ้ามี)
-      if (result.externalApi?.success) {
-        console.log("External API Response:", result.externalApi.data);
+      // ทันทีหลัง upload สำเร็จ - เรียก generate APA
+      let apaDataToShow: any = null;
+      try {
+        console.log(`[FileUploader] Generating APA for ${upload.file.name}...`);
+        const apaResponse = await fetch('/api/files/apa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: selectedFolder,
+            name: upload.file.name,
+          }),
+        });
+
+        if (apaResponse.ok) {
+          const apaResponseData = await apaResponse.json();
+          console.log('[FileUploader] ✅ APA generated:', apaResponseData);
+          apaDataToShow = apaResponseData.apa || apaResponseData;
+          
+          // แสดง alert หรือ notification
+          if (apaResponseData.debugInfo) {
+            console.log(`[FileUploader] Extraction: ${apaResponseData.debugInfo.extractionMethod}, Length: ${apaResponseData.debugInfo.textExtractedLength}`);
+          }
+        } else {
+          console.error('[FileUploader] ⚠️ APA generation failed');
+        }
+      } catch (apaErr) {
+        console.error('[FileUploader] Error generating APA:', apaErr);
+        // ไม่ throw error เพื่อไม่ให้กระทบการ upload
       }
 
-      // เรียก callback เพื่อให้ FileManager รีเฟรช
+      // แสดงผลลัพธ์ APA JSON จากการ upload (ถ้ามี - legacy)
+      if (result.apa) {
+        console.log('[FileUploader] APA from upload:', result.apa);
+      }
+
+      // แสดงผลลัพธ์จาก external API (ถ้ามี)
+      if (result.externalApi?.success) {
+        console.log("[FileUploader] External API Response:", result.externalApi.data);
+      }
+
+      // เรียก callback เพื่อให้ FileManager รีเฟรช และแสดง APA
       if (onUploadSuccess) {
-        onUploadSuccess();
+        onUploadSuccess({
+          fileName: upload.file.name,
+          apaData: apaDataToShow
+        });
       }
     } catch (error) {
       console.error("Error uploading file:", error);

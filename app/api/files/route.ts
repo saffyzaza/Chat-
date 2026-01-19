@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';
+import { Pool } from 'pg';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import * as pdfParse from 'pdf-parse';
+import mammoth from 'mammoth';
 
 // รองรับทั้ง local filesystem (สำหรับ external API) และ MinIO
 import { writeFile, mkdir } from 'fs/promises';
@@ -7,6 +11,122 @@ import { existsSync } from 'fs';
 import path from 'path';
 
 const TEMP_DIR = path.join(process.cwd(), 'temp');
+
+// PostgreSQL connection (keep consistent with other API routes)
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432'),
+  database: process.env.DB_NAME || 'chat-aio',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || '1234',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+
+// Google Generative AI client (Gemini)
+const genAIKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY;
+const genAI = genAIKey ? new GoogleGenerativeAI(genAIKey) : null;
+
+async function generateApaJson(params: {
+  fileName: string;
+  mimeType: string;
+  textContent?: string | null;
+}): Promise<any | null> {
+  try {
+    // If there's no API key, skip APA generation gracefully
+    if (!genAI) {
+      return null;
+    }
+
+    const schemaDescription = `CRITICAL INSTRUCTIONS:
+1. READ THE ENTIRE DOCUMENT CAREFULLY
+2. EXTRACT EVERY SINGLE PIECE OF INFORMATION
+3. Fill in ALL available fields - do NOT skip any data found in the document
+4. For references: list EVERY reference with complete details
+5. For researchers: list EVERY person mentioned with their role and affiliation
+6. For keywords: extract EVERY keyword mentioned
+
+Return as JSON:
+{
+  "documentType": "research_proposal|thesis|journal_article|report|other",
+  "projectInfo": {
+    "projectCode": "extract if exists",
+    "proposalCode": "extract if exists",
+    "titleThai": "EXTRACT COMPLETE THAI TITLE",
+    "titleEnglish": "EXTRACT COMPLETE ENGLISH TITLE",
+    "university": "EXTRACT ALL UNIVERSITIES MENTIONED",
+    "budgetYear": "extract year",
+    "totalBudget": 0,
+    "otherInfo": "any other project details"
+  },
+  "references": [
+    {
+      "type": "journal_article|book|thesis|thai_journal|thai_dissertation|website|report",
+      "authors": [{"firstName": "", "lastName": "", "firstNameThai": "", "lastNameThai": "", "middleInitial": ""}],
+      "year": 2024,
+      "title": "COMPLETE TITLE",
+      "journal": "journal name",
+      "volume": "12",
+      "issue": "3",
+      "pages": "45-60",
+      "doi": "10.xxx",
+      "publisher": "publisher",
+      "institution": "institution",
+      "degreeType": "Master|PhD"
+    }
+  ],
+  "researchers": [
+    {
+      "role": "หัวหน้าโครงการ|ผู้ร่วมวิจัย|อื่นๆ",
+      "titleThai": "title",
+      "firstNameThai": "EXTRACT",
+      "lastNameThai": "EXTRACT",
+      "firstNameEnglish": "extract if available",
+      "lastNameEnglish": "extract if available",
+      "affiliation": "EXTRACT COMPLETE AFFILIATION",
+      "contribution": 0.0,
+      "newResearcher": true|false
+    }
+  ],
+  "keywords": {
+    "thai": ["EXTRACT EVERY THAI KEYWORD"],
+    "english": ["EXTRACT EVERY ENGLISH KEYWORD"]
+  },
+  "abstract": "EXTRACT COMPLETE ABSTRACT",
+  "additionalInfo": "capture any other important data"
+}
+
+MANDATORY: Extract EVERYTHING visible in the document. Return ONLY valid JSON.`;
+
+    const basePrompt = `You are an expert researcher analyzing a document. Your task is to EXTRACT ALL INFORMATION COMPLETELY AND ACCURATELY. ${schemaDescription}`;
+
+    const contentForModel = params.textContent && params.textContent.trim().length > 0
+      ? `File: ${params.fileName}\nContent:\n${params.textContent.substring(0, 20000)}`
+      : `File: ${params.fileName}\nNo readable text could be extracted. If you can infer the document type from the filename, provide basic metadata. Filename: ${params.fileName}`;
+
+    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+    const model = genAI.getGenerativeModel({ model: modelName });
+    const result = await model.generateContent(`${basePrompt}\n\n${contentForModel}`);
+    const text = result.response?.text?.() || '';
+    console.log('[APA] Content length:', params.textContent?.length || 0);
+    console.log('[APA] AI response sample:', text.substring(0, 200));
+    // Try to parse JSON from the response
+    try {
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      const jsonStr = firstBrace >= 0 && lastBrace >= 0 ? text.slice(firstBrace, lastBrace + 1) : text;
+      const parsed = JSON.parse(jsonStr);
+      return parsed;
+    } catch {
+      // Fallback: wrap raw text
+      return { title: params.fileName, raw: text };
+    }
+  } catch (err) {
+    console.error('APA generation error:', err);
+    return null;
+  }
+}
 
 // สร้างโฟลเดอร์ชั่วคราวสำหรับ external API
 async function ensureTempDir() {
@@ -167,6 +287,46 @@ export async function POST(request: NextRequest) {
       }
     );
 
+    // Extract text content for AI when feasible (basic types only)
+    let textContent: string | null = null;
+    const lowerName = file.name.toLowerCase();
+    const isTextLike = (file.type?.startsWith('text/') || lowerName.endsWith('.txt') || lowerName.endsWith('.md') || lowerName.endsWith('.json'));
+    const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
+    const isDocx = file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || lowerName.endsWith('.docx');
+
+    try {
+      if (isTextLike) {
+        textContent = buffer.toString('utf-8');
+      } else if (isPdf) {
+        const parsed: any = await (pdfParse as any)(buffer);
+        textContent = parsed?.text || null;
+      } else if (isDocx) {
+        const result = await mammoth.extractRawText({ buffer });
+        textContent = result?.value || null;
+      }
+    } catch (extractErr) {
+      console.error('Text extraction error:', extractErr);
+      textContent = null;
+    }
+
+    // Generate APA JSON via AI
+    const apaJson = await generateApaJson({
+      fileName: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      textContent,
+    });
+
+    // Persist file + APA metadata in Postgres
+    try {
+      await pool.query(
+        `INSERT INTO file_apa_metadata (file_name, file_path, mime_type, size_bytes, apa_json, created_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
+        [file.name, folderPath, file.type || 'application/octet-stream', file.size, apaJson ? JSON.stringify(apaJson) : null]
+      );
+    } catch (dbErr: any) {
+      console.error('DB insert error (file_apa_metadata):', dbErr?.message || dbErr);
+    }
+
     // ส่งไฟล์ไปยัง API ภายนอก (เฉพาะไฟล์ PDF เท่านั้น)
     let externalApiResponse: any = null;
     if (externalApiUrl) {
@@ -213,6 +373,7 @@ export async function POST(request: NextRequest) {
       filename: file.name,
       path: folderPath,
       relativePath,
+      apa: apaJson,
       externalApi: externalApiResponse ? {
         success: true,
         data: externalApiResponse

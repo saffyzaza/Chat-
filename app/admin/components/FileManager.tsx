@@ -15,9 +15,10 @@ interface FileItem {
 interface FileManagerProps {
   refreshTrigger?: number;
   onFolderSelect?: (folderPath: string) => void;
+  onUploadComplete?: (data: { fileName: string; apaData: any }) => void;
 }
 
-export function FileManager({ refreshTrigger, onFolderSelect }: FileManagerProps) {
+export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }: FileManagerProps) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -30,6 +31,18 @@ export function FileManager({ refreshTrigger, onFolderSelect }: FileManagerProps
   const [viewingFile, setViewingFile] = useState<FileItem | null>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [fileContent, setFileContent] = useState<string | null>(null);
+  const [isApaModalOpen, setIsApaModalOpen] = useState(false);
+  const [apaData, setApaData] = useState<any | null>(null);
+  const [apaLoading, setApaLoading] = useState(false);
+
+  // เมื่อได้ APA data จาก FileUploader ให้แสดง modal
+  useEffect(() => {
+    if (onUploadComplete) {
+      console.log('[FileManager] Received APA from upload:', onUploadComplete);
+      // onUploadComplete is a callback function, not an object
+      // Remove this effect or handle it differently in the parent component
+    }
+  }, [onUploadComplete]);
 
   // โหลดไฟล์จาก API
   useEffect(() => {
@@ -292,6 +305,26 @@ export function FileManager({ refreshTrigger, onFolderSelect }: FileManagerProps
     return `${(kb / 1024).toFixed(2)} MB`;
   };
 
+  const handleShowApa = async (file: FileItem) => {
+    setApaLoading(true);
+    setApaData(null);
+    setIsApaModalOpen(true);
+    try {
+      const response = await fetch(`/api/files/apa?path=${encodeURIComponent(currentPath)}&name=${encodeURIComponent(file.name)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setApaData(data.apa || null);
+      } else {
+        setApaData({ error: 'ไม่พบข้อมูล APA สำหรับไฟล์นี้' });
+      }
+    } catch (err) {
+      console.error('Error fetching APA:', err);
+      setApaData({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูล APA' });
+    } finally {
+      setApaLoading(false);
+    }
+  };
+
   return (
     <div>
       {/* Path และปุ่มสร้างโฟลเดอร์ */}
@@ -443,6 +476,13 @@ export function FileManager({ refreshTrigger, onFolderSelect }: FileManagerProps
                             title="ดาวน์โหลด"
                           >
                             <IoDownloadOutline size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleShowApa(file)}
+                            className="p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors font-medium"
+                            title="โชว์ APA"
+                          >
+                            📊
                           </button>
                         </>
                       )}
@@ -699,6 +739,42 @@ export function FileManager({ refreshTrigger, onFolderSelect }: FileManagerProps
                   setFileContent(null);
                 }}
                 className="px-6 py-3 bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300 font-medium"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal โชว์ APA */}
+      {isApaModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-auto border border-gray-200 shadow-xl">
+            <div className="sticky top-0 bg-white px-6 py-4 flex justify-between items-center border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-700">📚 ข้อมูล APA</h3>
+              <button
+                onClick={() => { setIsApaModalOpen(false); setApaData(null); }}
+                className="text-gray-400 hover:text-gray-600 p-2 rounded-lg transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-6">
+              {apaLoading ? (
+                <p className="text-sm text-gray-600">กำลังโหลดข้อมูล APA...</p>
+              ) : apaData ? (
+                <pre className="text-xs bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap break-words">
+{typeof apaData === 'string' ? apaData : JSON.stringify(apaData, null, 2)}
+                </pre>
+              ) : (
+                <p className="text-sm text-gray-600">ไม่มีข้อมูล APA</p>
+              )}
+            </div>
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
+              <button
+                onClick={() => { setIsApaModalOpen(false); setApaData(null); }}
+                className="px-6 py-2 bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300 font-medium"
               >
                 ปิด
               </button>
