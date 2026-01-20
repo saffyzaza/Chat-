@@ -325,6 +325,11 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
     }
   };
 
+  // เปิด references page ในหน้าเดียวกัน
+  const handleOpenReferencesPage = () => {
+    window.location.assign('/admin/references');
+  };
+
   return (
     <div>
       {/* Path และปุ่มสร้างโฟลเดอร์ */}
@@ -353,6 +358,14 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
               ลบที่เลือก
             </button>
           )}
+          <button
+            onClick={handleOpenReferencesPage}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium shadow-sm transition-all"
+            title="ดูข้อมูล APA และอ้างอิงของ PDF ทั้งหมด"
+          >
+            📚
+            อ้างอิง
+          </button>
           <button
             onClick={() => setShowNewFolderInput(true)}
             className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium shadow-sm transition-all"
