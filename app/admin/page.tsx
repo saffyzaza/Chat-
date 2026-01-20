@@ -9,17 +9,26 @@ export default function AdminPage() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [selectedFolder, setSelectedFolder] = useState('/');
   const [isDragOver, setIsDragOver] = useState(false);
+  const [lastUploadData, setLastUploadData] = useState<{ fileName: string; apaData: any } | null>(null);
   
   // กำหนด URL ของ API ภายนอกที่ต้องการส่งไฟล์ไปด้วย (optional)
   // ตัวอย่าง: const externalApiUrl = 'https://your-api.com/upload';
   const externalApiUrl = 'http://72.61.120.205:8001/upload'; // API สำหรับอัปโหลดไฟล์
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccess = (data?: { fileName: string; apaData: any }) => {
     setRefreshTrigger(prev => prev + 1);
+    if (data) {
+      setLastUploadData(data);
+    }
   };
 
   const handleFolderSelect = (folderPath: string) => {
     setSelectedFolder(folderPath);
+  };
+
+  const handleUploadComplete = (data: { fileName: string; apaData: any }) => {
+    console.log('[AdminPage] Upload completed:', data);
+    setLastUploadData(data);
   };
 
   const handlePageDragOver = (e: React.DragEvent) => {
@@ -117,6 +126,7 @@ export default function AdminPage() {
             <FileManager 
               refreshTrigger={refreshTrigger} 
               onFolderSelect={handleFolderSelect}
+              onUploadComplete={handleUploadComplete}
             />
           </div>
         </div>
