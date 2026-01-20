@@ -19,7 +19,7 @@ export async function POST(
 ) {
   try {
     const { id: sessionId } = await params;
-    const { role, content, images, charts, tables, codeBlocks } = await request.json();
+    const { role, content, images, charts, tables, codeBlocks, planContent } = await request.json();
 
     if (!role || !content) {
       return NextResponse.json(
@@ -44,9 +44,9 @@ export async function POST(
     // เพิ่มข้อความ
     const insertQuery = `
       INSERT INTO chat_messages (
-        session_id, role, content, images, charts, tables, code_blocks
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING id, role, content, images, charts, tables, code_blocks, created_at
+        session_id, role, content, images, charts, tables, code_blocks, plan_content
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, role, content, images, charts, tables, code_blocks, plan_content, created_at
     `;
 
     const insertResult = await pool.query(insertQuery, [
@@ -56,7 +56,8 @@ export async function POST(
       images || null,
       charts ? JSON.stringify(charts) : null,
       tables ? JSON.stringify(tables) : null,
-      codeBlocks ? JSON.stringify(codeBlocks) : null
+      codeBlocks ? JSON.stringify(codeBlocks) : null,
+      planContent || null
     ]);
 
     const newMessage = insertResult.rows[0];
@@ -99,6 +100,7 @@ export async function POST(
         charts: newMessage.charts || [],
         tables: newMessage.tables || [],
         codeBlocks: newMessage.code_blocks || [],
+        planContent: newMessage.plan_content,
         timestamp: newMessage.created_at
       }
     }, { status: 201 });
@@ -120,7 +122,7 @@ export async function GET(
     const { id: sessionId } = await params;
 
     const query = `
-      SELECT id, role, content, images, charts, tables, code_blocks, created_at
+      SELECT id, role, content, images, charts, tables, code_blocks, plan_content, created_at
       FROM chat_messages 
       WHERE session_id = $1
       ORDER BY created_at ASC
@@ -136,6 +138,7 @@ export async function GET(
         charts: msg.charts || [],
         tables: msg.tables || [],
         codeBlocks: msg.code_blocks || [],
+        planContent: msg.plan_content,
         timestamp: msg.created_at
       }))
     });

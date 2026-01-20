@@ -26,7 +26,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Query user from database
-    const query = 'SELECT id, name, email, role, created_at FROM users WHERE email = $1 AND password = $2';
+    // ตรวจสอบคอลัมน์ approved/disabled
+    const colCheck = await pool.query(`
+      SELECT 
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='approved') AS has_approved,
+        EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='disabled') AS has_disabled
+    `);
+    const flags = colCheck.rows[0] || { has_approved: false, has_disabled: false };
+    const hasApproved = !!flags.has_approved;
+    const hasDisabled = !!flags.has_disabled;
+
+    const selectCols = [
+      'id', 'name', 'email', 'role', 'created_at',
+      hasApproved ? 'approved' : 'FALSE AS approved',
+      hasDisabled ? 'disabled' : 'FALSE AS disabled'
+    ].join(', ');
+
+    const query = `SELECT ${selectCols} FROM users WHERE email = $1 AND password = $2`;
     const result = await pool.query(query, [email, password]);
 
     if (result.rows.length === 0) {
@@ -52,6 +68,9 @@ export async function POST(request: NextRequest) {
         name: user.name,
         email: user.email,
         role: user.role || 'user',
+        approved: !!user.approved,
+        disabled: !!user.disabled,
+        activationStatus: (!!user.approved && !user.disabled) ? 'Active' : 'Inactive',
       },
       token: `Bearer ${Buffer.from(`${user.id}:${Date.now()}`).toString('base64')}`, // Simple token example
     });

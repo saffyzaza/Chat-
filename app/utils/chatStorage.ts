@@ -10,6 +10,7 @@ export interface ChatMessage {
   charts?: any[];
   tables?: any[];
   codeBlocks?: Array<{ code: string; language: string }>;
+  planContent?: string;
   timestamp: string;
 }
 
@@ -48,8 +49,9 @@ export const getAllChatSessions = async (filter?: string, search?: string): Prom
   if (typeof window === 'undefined') return [];
   
   const userId = getCurrentUserId();
+  let allSessions: ChatSession[] = [];
   
-  // ถ้า user login แล้ว ใช้ PostgreSQL
+  // 1. ดึงจาก PostgreSQL (ถ้า Login แล้ว)
   if (userId) {
     try {
       const params = new URLSearchParams({ userId: userId.toString() });
@@ -59,34 +61,43 @@ export const getAllChatSessions = async (filter?: string, search?: string): Prom
       const response = await fetch(`/api/chat/sessions?${params.toString()}`);
       const data = await response.json();
       
-      if (response.ok) {
-        return data.sessions || [];
+      if (response.ok && data.sessions) {
+        allSessions = [...data.sessions];
       }
-      console.error('Error from API:', data.message);
     } catch (error) {
       console.error('Error fetching sessions from API:', error);
     }
   }
   
-  // Fallback: ใช้ localStorage สำหรับ guest
+  // 2. ดึงจาก localStorage (เสมอ เพื่อให้ Guest sessions ยังใช้งานได้)
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return [];
-    
-    const sessions: ChatSession[] = JSON.parse(stored);
-    
-    // กรองและค้นหา
-    let filtered = sessions;
-    
-    if (search) {
-      const lowerSearch = search.toLowerCase();
-      filtered = filtered.filter(s => 
-        s.title.toLowerCase().includes(lowerSearch) ||
-        s.preview.toLowerCase().includes(lowerSearch)
-      );
+    if (stored) {
+      const localSessions: ChatSession[] = JSON.parse(stored);
+      
+      // กรองและค้นพบ (เฉพาะตัวที่ยังไม่มีใน allSessions เพื่อไม่ให้ซ้ำ)
+      const uniqueLocal = localSessions.filter(ls => !allSessions.some(as => as.id === ls.id));
+      allSessions = [...allSessions, ...uniqueLocal];
     }
-    
-    if (filter && filter !== 'all') {
+  } catch (error) {
+    console.error('Error fetching localStorage sessions:', error);
+  }
+
+  // เรียงลำดับตามวันที่อัปเดตล่าสุด
+  allSessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  // ปรับจูนผลลัพธ์ (กรองและค้นหา)
+  let filtered = allSessions;
+  
+  if (search) {
+    const lowerSearch = search.toLowerCase();
+    filtered = filtered.filter(s => 
+      s.title.toLowerCase().includes(lowerSearch) ||
+      s.preview.toLowerCase().includes(lowerSearch)
+    );
+  }
+  
+  if (filter && filter !== 'all') {
       const now = new Date();
       let filterDate = new Date();
       
@@ -109,10 +120,6 @@ export const getAllChatSessions = async (filter?: string, search?: string): Prom
     return filtered.sort((a, b) => 
       new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     );
-  } catch (error) {
-    console.error('Error loading chat sessions from localStorage:', error);
-    return [];
-  }
 };
 
 /**
@@ -208,8 +215,14 @@ export const deleteChatSession = async (id: string): Promise<void> => {
         method: 'DELETE'
       });
       
-      if (response.ok) return;
-      console.error('Error deleting session from API');
+      if (response.ok) {
+        console.log('✅ Session deleted from API');
+        return;
+      }
+
+      // ถ้าไม่สำเร็จ ให้อ่าน Error Message จาก API
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Error deleting session from API:', response.status, errorData.message || response.statusText);
     } catch (error) {
       console.error('Error deleting session from API:', error);
     }
@@ -406,7 +419,8 @@ export const addMessageToSession = async (
           images: message.images,
           charts: message.charts,
           tables: message.tables,
-          codeBlocks: message.codeBlocks
+          codeBlocks: message.codeBlocks,
+          planContent: message.planContent
         })
       });
       
@@ -471,6 +485,12 @@ export const addMessageToSession = async (
       // อัปเดตชื่อถ้ายังเป็นค่าเริ่มต้น และมีข้อความแรกจาก user
       if (session.messages.length === 1 && message.role === 'user') {
         session.title = generateSessionTitle(message.content);
+      }
+      
+      // บันทึก planContent ลงใน message ล่าสุดของ localStorage session ถ้ามี
+      const lastMsg = session.messages[session.messages.length - 1];
+      if (message.planContent) {
+        lastMsg.planContent = message.planContent;
       }
       
       localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));

@@ -1,48 +1,41 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { IoHardwareChipOutline, IoRefreshOutline, IoCopyOutline, IoCheckmarkOutline, IoCreateOutline } from 'react-icons/io5';
+import { IoHardwareChipOutline, IoRefreshOutline, IoCopyOutline, IoCheckmarkOutline, IoCreateOutline, IoDocumentTextOutline } from 'react-icons/io5';
 import { ChartRenderer } from './ChartRenderer';
 import { TableRenderer } from './TableRenderer';
 import { CodeBlock } from './CodeBlock';
 import { MessageContent } from './MessageContent';
 
-// 1. กำหนด Type ของ Message (export เพื่อให้ ChatInterface ใช้ได้)
+// 1. กำหนด Type ของ Message
 export interface Message {
-  role: 'user' | 'assistant' | 'system'; // เพิ่ม 'system'
+  role: 'user' | 'assistant' | 'system';
   content: string;
-  images?: string[]; // URL ของรูปภาพที่แนบ (optional)
-  charts?: any[]; // ข้อมูลกราฟ
-  tables?: any[]; // ข้อมูลตาราง
-  codeBlocks?: Array<{ code: string; language: string }>; // Code blocks
-  isNewMessage?: boolean; // ใช้เพื่อกำหนดว่าเป็นข้อความใหม่ที่ต้องใช้ TextType animation หรือไม่
-  noTyping?: boolean; // ปิดการใช้งาน TextType ชั่วคราวสำหรับข้อความนี้ (เช่น เมื่อใช้ Planning API)
+  images?: string[]; 
+  charts?: any[]; 
+  tables?: any[]; 
+  codeBlocks?: Array<{ code: string; language: string }>; 
+  planContent?: string; 
+  isNewMessage?: boolean; 
 }
 
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
-  onRegenerate?: (messageIndex: number) => void; // Callback สำหรับ regenerate
-  onCopy?: (content: string) => void; // Callback สำหรับ copy
-  onEdit?: (messageIndex: number, content: string) => void; // Callback สำหรับแก้ไขข้อความ
-  onTypingComplete?: (messageIndex: number) => void; // Callback เมื่อข้อความจาก AI พิมพ์เสร็จ
+  onRegenerate?: (messageIndex: number) => void;
+  onCopy?: (content: string) => void;
+  onEdit?: (messageIndex: number, content: string) => void;
+  onTypingComplete?: (messageIndex: number) => void;
+  onViewPlan?: (planContent: string) => void;
 }
 
 // 2. Component สำหรับแสดงผลข้อความ
-export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit, onTypingComplete }: MessageListProps) => {
+export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit, onTypingComplete, onViewPlan }: MessageListProps) => {
   
-  // สร้าง ref สำหรับ auto-scroll
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // State สำหรับเก็บ message index ที่กำลัง hover
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  
-  // State สำหรับเก็บ message index ที่ถูก copy
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  
-  // State สำหรับเก็บ message index ที่กำลังแก้ไข
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editContent, setEditContent] = useState<string>('');
   
-  // Auto-scroll เมื่อมีข้อความใหม่หรือกำลัง loading
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ 
       behavior: 'smooth', 
@@ -50,17 +43,12 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
     });
   }, [messages, isLoading]);
   
-  // 3. กรอง message ที่เป็น 'system' ออก ไม่ต้องแสดงผล
   const visibleMessages = messages.filter(msg => msg.role !== 'system');
   
-  // ฟังก์ชัน Copy (ปลอดภัยทั้ง HTTP/ไม่รองรับ clipboard API)
   const handleCopy = async (content: string, index: number) => {
     const tryNativeClipboard = async () => {
       if (typeof navigator === 'undefined') return false;
-      // clipboard API ใช้ได้เฉพาะ secure context ส่วนใหญ่ (https)
-      // และบางเบราว์เซอร์/สิทธิ์อาจไม่เปิดให้ใช้
       try {
-        // @ts-ignore
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(content);
           return true;
@@ -92,31 +80,23 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
       setCopiedIndex(index);
       if (onCopy) onCopy(content);
       setTimeout(() => setCopiedIndex(null), 2000);
-    } else {
-      console.error('Failed to copy: Clipboard API not available');
     }
   };
   
-  // ฟังก์ชัน Regenerate
   const handleRegenerate = (index: number) => {
-    if (onRegenerate) {
-      onRegenerate(index);
-    }
+    if (onRegenerate) onRegenerate(index);
   };
   
-  // ฟังก์ชันเริ่มแก้ไข
   const startEdit = (index: number, content: string) => {
     setEditingIndex(index);
     setEditContent(content);
   };
   
-  // ฟังก์ชันยกเลิกการแก้ไข
   const cancelEdit = () => {
     setEditingIndex(null);
     setEditContent('');
   };
   
-  // ฟังก์ชันบันทึกการแก้ไข
   const saveEdit = (index: number) => {
     if (onEdit && editContent.trim()) {
       onEdit(index, editContent.trim());
@@ -133,7 +113,6 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
         }
       `}</style>
       {visibleMessages.map((msg, index) => (
-        
         <div 
           key={index} 
           className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -144,51 +123,9 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
             <div className={`${msg.role === 'user' ? 'inline-block max-w-xl' : 'w-full max-w-full'} p-2 rounded-xl ${
               msg.role === 'user' 
                 ? 'bg-[#eb6f45f1] shadow shadow-amber-600 text-white' 
-                : 'bg-[#f7f7f7b4] shadow shadow-gray-300 text-gray-800'
+                : 'bg-white border border-gray-100 shadow-sm text-gray-800'
             }`}>
-              {/* แสดงรูปภาพถ้ามี */}
-              {msg.images && msg.images.length > 0 && (
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {msg.images.map((imgUrl, imgIndex) => (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={imgIndex}
-                      src={imgUrl}
-                      alt={`attachment-${imgIndex}`}
-                      className="rounded-lg object-cover border border-white/20"
-                      style={{ width: '80px', height: '80px' }}
-                    />
-                  ))}
-                </div>
-              )}
-              {/* แสดง Code Blocks ถ้ามี */}
-              {msg.codeBlocks && msg.codeBlocks.length > 0 && (
-                <div className="mb-2">
-                  {msg.codeBlocks.map((block, blockIndex) => (
-                    <CodeBlock key={blockIndex} code={block.code} language={block.language} />
-                  ))}
-                </div>
-              )}
-              
-              {/* แสดงกราฟถ้ามี */}
-              {msg.charts && msg.charts.length > 0 && (
-                <div className="mb-2">
-                  {msg.charts.map((chart, chartIndex) => (
-                    <ChartRenderer key={chartIndex} chartData={chart} />
-                  ))}
-                </div>
-              )}
-              
-              {/* แสดงตารางถ้ามี */}
-              {msg.tables && msg.tables.length > 0 && (
-                <div className="mb-2">
-                  {msg.tables.map((table, tableIndex) => (
-                    <TableRenderer key={tableIndex} tableData={table} />
-                  ))}
-                </div>
-              )}
-              
-              {/* แสดงฟอร์มแก้ไขถ้ากำลังแก้ไข */}
+              {/* 1. แสดงข้อความหลัก (หรือฟอร์มแก้ไข) ก่อน */}
               {editingIndex === index ? (
                 <div className="space-y-2">
                   <textarea
@@ -203,64 +140,94 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
                     autoFocus
                   />
                   <div className="flex gap-2 justify-end">
-                    <button
-                      onClick={cancelEdit}
-                      className={`px-3 py-1 rounded-lg text-sm ${
-                        msg.role === 'user'
-                          ? 'bg-white/10 hover:bg-white/20 text-white'
-                          : 'bg-gray-300 hover:bg-gray-400 text-gray-800'
-                      }`}
-                    >
+                    <button onClick={cancelEdit} className={`px-3 py-1 rounded-lg text-sm ${msg.role === 'user' ? 'bg-white/10 text-white' : 'bg-gray-300 text-gray-800'}`}>
                       ยกเลิก
                     </button>
-                    <button
-                      onClick={() => saveEdit(index)}
-                      className={`px-3 py-1 rounded-lg text-sm ${
-                        msg.role === 'user'
-                          ? 'bg-white text-[#eb6f45f1] hover:bg-white/90'
-                          : 'bg-[#eb6f45f1] text-white hover:bg-[#d5613d]'
-                      }`}
-                    >
+                    <button onClick={() => saveEdit(index)} className={`px-3 py-1 rounded-lg text-sm ${msg.role === 'user' ? 'bg-white text-[#eb6f45f1]' : 'bg-[#eb6f45f1] text-white'}`}>
                       บันทึก
                     </button>
                   </div>
                 </div>
               ) : (
-                /* ใช้ MessageContent component สำหรับแสดงผลข้อความที่ซับซ้อน */
                 msg.content && (
                   <MessageContent 
                     content={msg.content} 
                     isUser={msg.role === 'user'}
                     isNewMessage={msg.isNewMessage}
-                    noTyping={msg.noTyping}
-                    onCharacterTyped={() => {
-                      // Auto-scroll ทุกครั้งที่มีการพิมพ์ตัวอักษรใหม่
-                      messagesEndRef.current?.scrollIntoView({ 
-                        behavior: 'smooth', 
-                        block: 'end' 
-                      });
-                    }}
+                    charts={msg.charts}
+                    tables={msg.tables}
+                    codeBlocks={msg.codeBlocks}
                     onComplete={() => {
                       if (onTypingComplete) onTypingComplete(index);
                     }}
                   />
                 )
               )}
+
+              {/* สื่อเสริมจะถูกจัดการผ่าน placeholder ใน MessageContent แล้ว */}
+              {/* แต่ยังคงเผื่อไว้สำหรับเคสที่ไม่มี placeholder */}
+              {!msg.content?.includes('<ChartAI') && !msg.content?.includes('<TableAI') && !msg.content?.includes('<CodeBlockAI') && (
+                <div className="space-y-3">
+                  {msg.images && msg.images.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {msg.images.map((imgUrl, imgIndex) => (
+                        <img
+                          key={imgIndex}
+                          src={imgUrl}
+                          alt={`attachment-${imgIndex}`}
+                          className="rounded-lg object-cover border border-white/20"
+                          style={{ width: '80px', height: '80px' }}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {msg.codeBlocks && msg.codeBlocks.length > 0 && (
+                    <div className="mt-2 text-left">
+                      {msg.codeBlocks.map((block, blockIndex) => (
+                        <CodeBlock key={blockIndex} code={block.code} language={block.language} />
+                      ))}
+                    </div>
+                  )}
+                  
+                  {msg.charts && msg.charts.length > 0 && (
+                    <div className="mt-2">
+                      {msg.charts.map((chart, chartIndex) => (
+                        <ChartRenderer key={chartIndex} chartData={chart} />
+                      ))}
+                    </div>
+                  )}
+                  
+                  {msg.tables && msg.tables.length > 0 && (
+                    <div className="mt-2">
+                      {msg.tables.map((table, tableIndex) => (
+                        <TableRenderer key={tableIndex} tableData={table} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {msg.planContent && (
+                <div className="mt-3 pt-3 border-t border-gray-200/50">
+                  <button
+                    onClick={() => onViewPlan && onViewPlan(msg.planContent!)}
+                    className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors shadow-sm text-sm"
+                  >
+                    <IoDocumentTextOutline size={18} />
+                    <span>เปิดดูแผนงานที่บันทึกไว้</span>
+                  </button>
+                </div>
+              )}
             </div>
             
-            {/* ปุ่มคัดลอกและแก้ไข - แสดงเมื่อ hover */}
             {hoveredIndex === index && editingIndex !== index && (
-              <div className={`absolute flex gap-1 ${
-                msg.role === 'user' 
-                  ? 'top-2 right-2' 
-                  : 'top-2 right-2'
-              }`}>
-                {/* ปุ่มคัดลอก */}
+              <div className="absolute flex gap-1 top-2 right-2">
                 <button
                   onClick={() => handleCopy(msg.content, index)}
                   className={`p-1.5 rounded-lg transition-all ${
                     msg.role === 'user'
-                      ? 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm'
+                      ? 'bg-white/20 hover:bg-white/30 text-white'
                       : 'bg-white hover:bg-gray-100 text-gray-600 shadow-md'
                   }`}
                   title="คัดลอก"
@@ -272,18 +239,16 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
                   )}
                 </button>
                 
-                {/* ปุ่มแก้ไข - แสดงเฉพาะข้อความของ user */}
                 {msg.role === 'user' && (
                   <button
                     onClick={() => startEdit(index, msg.content)}
-                    className="p-1.5 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-all backdrop-blur-sm"
+                    className="p-1.5 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-all"
                     title="แก้ไข"
                   >
                     <IoCreateOutline size={16} />
                   </button>
                 )}
                 
-                {/* ปุ่ม Regenerate - แสดงเฉพาะข้อความของ assistant */}
                 {msg.role === 'assistant' && onRegenerate && (
                   <button
                     onClick={() => handleRegenerate(index)}
@@ -299,18 +264,15 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
         </div>
       ))}
 
-      {/* 4. แสดง "กำลังพิมพ์..." เมื่อ AI กำลังตอบ */}
       {isLoading && (
         <div className="flex justify-start">
-          <div className="flex items-center space-x-2 bg-gray-200 text-gray-800 p-3 rounded-xl">
-            <IoHardwareChipOutline className="animate-spin text-gray-600" size={20} />
+          <div className="flex items-center space-x-2 bg-white border border-gray-100 shadow-sm text-gray-800 p-3 rounded-xl">
+            <IoHardwareChipOutline className="animate-spin text-orange-500" size={20} />
             <span className="text-sm">กำลังคิด...</span>
           </div>
         </div>
       )}
-      
-      
-      <div/>
+      <div ref={messagesEndRef} />
     </div>
   );
 };

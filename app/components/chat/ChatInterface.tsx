@@ -1,16 +1,24 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Message, MessageList } from './chatMessage/MessageList';
 import { ChatInputArea } from './inputArea/ChatInputArea';
 import { useChatHistory } from '../../hooks/useChatHistory';
 import { PROMPT } from './promptchat';
+import { PROMPT_PLAN } from './promptplan';
+import { PROMPT_SEARCH } from './promptsearch';
+import { PROMPT_COMPARE } from './promptcompare';
+import { PROMPT_CONSULT } from './promptconsult';
+import { PROMPT_SUMMARY } from './promptsummary';
+import { PROMPT_CHART as PROMPT_CHART_DOC } from './promptchart_doc';
 import { getChatSession, saveChatSession } from '../../utils/chatStorage';
-
-// Import component และ type
+import { fetchWithAuth } from '@/app/utils/auth';
+import { LoginPopup } from '../auth/LoginPopup';
+import { ProjectPlan } from './chatMessage/ProjectPlan';
 
 // --- System Prompt imported from promptchat.js ---
 const SYSTEM_PROMPT = PROMPT;
+const PLANNING_PROMPT = PROMPT_PLAN;
 
 // --- Component ย่อย (คงไว้ในไฟล์นี้) ---
 const SuggestionCard = ({ title, description, onClick }: { title: string, description: string, onClick?: () => void }) => (
@@ -62,41 +70,154 @@ export const ChatInterface = () => {
   const stopRequestedRef = useRef<boolean>(false);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [typingComplete, setTypingComplete] = useState<boolean>(false);
+  const [activationChecked, setActivationChecked] = useState(false);
+  const [requireLogin, setRequireLogin] = useState(false);
+  const [userStatus, setUserStatus] = useState<'Active' | 'Inactive' | 'Unknown'>('Unknown');
+
+  // --- Resizing Logic for MessageList and ProjectPlan ---
+  const [leftWidth, setLeftWidth] = useState(60); // Initial width 60%
+  const [isResizing, setIsResizing] = useState(false);
+  const [planContent, setPlanContent] = useState<string>('');
+  const [showPlanPanel, setShowPlanPanel] = useState<boolean>(false);
+
+  const startResizing = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      const newWidth = (e.clientX / window.innerWidth) * 100;
+      if (newWidth > 20 && newWidth < 80) { // Limit resizing between 20% and 80%
+        setLeftWidth(newWidth);
+      }
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      window.addEventListener('mousemove', resize);
+      window.addEventListener('mouseup', stopResizing);
+    } else {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [isResizing, resize, stopResizing]);
 
   // helper: ดึง 3 คำถามต่อจากหัวข้อและลบออกจากเนื้อหาหลัก
   const extractFollowUpsAndClean = (textRaw: string): { cleaned: string; followUps: string[] } => {
-    const text = textRaw || '';
-    const header = 'ไกด์แนะนำคำถามต่อไป';
-    const idx = text.lastIndexOf(header);
-    if (idx === -1) {
+    let text = textRaw || '';
+    
+    // กำหนดหัวข้อที่ต้องการค้นหา (เรียงจากยาวไปสั้นเพื่อให้จับตัวยาวก่อน)
+    const headers = [
+      'ไกด์แนะนำคำถามต่อไป',
+      'คำถามที่เกี่ยวข้อง',
+      'ไกด์แนะนำคำ',
+      'คำถามแนะนำ',
+      'ถามต่อ'
+    ];
+
+    let foundIdx = -1;
+    let foundHeaderLen = 0;
+
+    for (const h of headers) {
+      // ค้นหาหัวข้อแบบไม่สนใจสัญลักษณ์ Markdown ด้านหน้าหรือด้านหลัง
+      const regex = new RegExp(`[#* \t]*${h}[:* \n\t]*`, 'g');
+      const matches = Array.from(text.matchAll(regex));
+      if (matches.length > 0) {
+        // หาตำแหน่งที่เจอตัวแรกสุดในบรรดาหัวข้อที่ระบุ
+        const firstMatch = matches[0];
+        if (foundIdx === -1 || firstMatch.index! < foundIdx) {
+          foundIdx = firstMatch.index!;
+          foundHeaderLen = firstMatch[0].length;
+        }
+      }
+    }
+    
+    if (foundIdx === -1) {
       return { cleaned: text.trim(), followUps: [] };
     }
 
-    const tail = text.slice(idx);
+    // ตั้งแต่หลังหัวข้อลงไป
+    const tail = text.slice(foundIdx + foundHeaderLen);
     const lines = tail.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const arr: string[] = [];
+    
     for (const ln of lines) {
-      const m = ln.match(/^([0-9]+)[\.)]\s*(.+)$/);
+      // รองรับ 1. 2. 3. หรือ 1) 2) 3) หรือ - หรือ * หรือ •
+      const m = ln.match(/^([0-9]+[\.)]|\*|-|•)\s*(.+)$/);
       if (m && m[2]) {
-        arr.push(m[2].trim());
+        let q = m[2].trim();
+        // ลบเครื่องหมายคำพูดหรือดอกจันที่อาจครอบคำถามอยู่
+        q = q.replace(/^["'*(]+|[)"'*]+$/g, '');
+        arr.push(q);
         if (arr.length >= 3) break;
       }
     }
 
-    const cleaned = text.slice(0, idx).trim().replace(/\n{3,}/g, '\n\n');
+    // ตัดคำถามที่อาจติดมาในรูปแบบบรรทัดสั้นๆ โดยไม่มีตัวเลขนำหน้า ( fallback )
+    if (arr.length === 0 && lines.length > 0) {
+      for (const ln of lines.slice(0, 3)) {
+        if (ln.length < 100) {
+          arr.push(ln.replace(/^["'*(]+|[)"'*]+$/g, ''));
+        }
+      }
+    }
+
+    // เนื้อหาก่อนถึงหัวข้อ
+    let cleaned = text.slice(0, foundIdx).trim();
     return { cleaned, followUps: arr.slice(0, 3) };
   };
 
-  // helper: ลบตัวอักษรตกค้างท้ายข้อความ เช่น ** หรือเครื่องหมายคำพูด
+  // helper: ลบตัวอักษรตกค้างท้ายข้อความ เช่น ** หรือเครื่องหมายคำพูด หรือเครื่องหมาย Header
   const sanitizeTail = (textRaw: string): string => {
     let t = textRaw || '';
-    // ลบช่องว่างและเครื่องหมายดอกจันท้ายข้อความ
-    t = t.replace(/[ \t]*(\*{1,3})+$/g, '');
-    // ลบเครื่องหมายคำพูดซ้ำๆ ท้ายข้อความ
-    t = t.replace(/[ \t]*["']+$/g, '');
+    // ลบ Markdown decoration ท้ายข้อความ เช่น ** หรือ # หรือ : หรือบรรทัดว่าง
+    // เพิ่มการลบ - และ * ที่อาจเป็น bullet ตกค้าง
+    t = t.replace(/[ \t\n]*[#*:\- \t"'`]+$/g, '');
     // ลบบรรทัดว่างเกินจำเป็นท้ายข้อความ
     t = t.replace(/\n{3,}$/g, '\n\n');
     return t.trim();
+  };
+
+  /**
+   * AI Intent Router: วิเคราะห์ว่าผู้ใช้ต้องการใช้เครื่องมือพิเศษหรือไม่
+   * ช่วยให้ AI เข้าใจบริบทและเลือกเครื่องมือที่เหมาะสมโดยที่ผู้ใช้ไม่ต้องกดเลือกเอง
+   */
+  const detectToolHeuristic = (text: string): string | null => {
+    const t = text.toLowerCase();
+    
+    // รายการเครื่องมือและคีย์เวิร์ดที่เกี่ยวข้อง (เพิ่ม Keywords ที่หลากหลาย)
+    const toolMap = [
+      { id: 'เขียนแผนงาน', keywords: ['แผนงาน', 'โครงการ', 'roadmap', 'แผนการดำเนินงาน', 'plan', 'proposal', 'ขอบเขตงาน', 'ร่างโครงการ', 'แผนพัฒนา', 'ตารางงาน', 'workflow', 'กำหนดการ', 'ยุทธศาสตร์'] },
+      { id: 'สรุปรายงาน', keywords: ['รายงาน', 'สรุปเนื้อหา', 'ทำสรุป', 'summary', 'report', 'บทสรุป', 'เอกสาร', 'ร่างเอกสาร', 'บันทึก', 'ข้อสรุป', 'บทความ', 'เนื้อหาสรุป', 'จัดทำเอกสาร', 'pdf', 'docx', 'ไฟล์เอกสาร'] },
+      { id: 'สร้างกราฟ', keywords: ['กราฟ', 'แผนภูมิ', 'chart', 'plot', 'visualize', 'dashboard', 'แสดงผลเป็นภาพ', 'สถิติ', 'ข้อมูลภาพ', 'กราฟเส้น', 'กราฟแท่ง', 'กราฟวงกลม', 'ไดอะแกรม'] },
+      { id: 'ฐานข้อมูล', keywords: ['ฐานข้อมูล', 'database', 'ตารางข้อมูล', 'sql', 'query', 'เก็บข้อมูล', 'คลังข้อมูล', 'data structure', 'schema', 'จัดการข้อมูล', 'ชุดข้อมูล'] },
+      { id: 'เทียบข้อมูล', keywords: ['เปรียบเทียบ', 'เทียบ', 'compare', 'contrast', 'ความแตกต่าง', 'จุดเด่นจุดด้อย', 'ข้อดีข้อเสีย', 'benchmarking', 'ตารางเทียบ'] },
+    ];
+
+    // ค้นหาคีย์เวิร์ดร่วมกับเจตนา (Intents) เพื่อความแม่นยำ
+    const intents = ['ช่วย', 'ทำ', 'ขอ', 'สรุป', 'ร่าง', 'สร้าง', 'เขียน', 'ออกแบบ', 'อยากได้'];
+    
+    for (const tool of toolMap) {
+      const hasKeyword = tool.keywords.some(k => t.includes(k));
+      const hasIntent = intents.some(i => t.includes(i));
+      
+      // ถ้ามีทั้งเจตนาและคีย์เวิร์ด หรือมีคีย์เวิร์ดเฉพาะเจาะจงมากพอ
+      if (hasKeyword && (hasIntent || t.length < 50)) {
+        return tool.id;
+      }
+    }
+    return null;
   };
 
   // Request throttling: เก็บเวลาของ request ล่าสุด
@@ -114,6 +235,66 @@ export const ChatInterface = () => {
 
   // โหลด session จาก URL parameter
   useEffect(() => {
+    // Activation gate: ตรวจสอบโปรไฟล์และสถานะ
+    (async () => {
+      try {
+        const res = await fetchWithAuth('/api/user/profile');
+        if (!res.ok) {
+          // ถ้ายังไม่ได้ login หรือ token ไม่ถูกต้อง ให้เปิด login popup
+          setRequireLogin(true);
+          setUserStatus('Unknown');
+        } else {
+          const json = await res.json();
+          const status = json?.user?.activationStatus as ('Active' | 'Inactive') | undefined;
+          if (status === 'Active') {
+            setRequireLogin(false);
+            setUserStatus('Active');
+          } else {
+            // Inactive -> ให้ login popup ก่อนใช้งาน
+            setRequireLogin(true);
+            setUserStatus('Inactive');
+          }
+        }
+      } catch (e) {
+        setRequireLogin(true);
+        setUserStatus('Unknown');
+      } finally {
+        setActivationChecked(true);
+      }
+    })();
+  }, []);
+
+  const handleLoginSuccess = () => {
+    // หลัง login สำเร็จ ตรวจสอบสถานะอีกครั้ง
+    (async () => {
+      try {
+        const res = await fetchWithAuth('/api/user/profile');
+        if (res.ok) {
+          const json = await res.json();
+          const status = json?.user?.activationStatus as ('Active' | 'Inactive') | undefined;
+          if (status === 'Active') {
+            setRequireLogin(false);
+            setUserStatus('Active');
+          } else {
+            setRequireLogin(true);
+            setUserStatus('Inactive');
+          }
+        } else {
+          setRequireLogin(true);
+          setUserStatus('Unknown');
+        }
+      } catch {
+        setRequireLogin(true);
+        setUserStatus('Unknown');
+      }
+    })();
+  };
+
+  // โหลด session จาก URL parameter (แยก useEffect ออกมา)
+  useEffect(() => {
+    // ต้องรอให้ตรวจสอบ Activation และ Login เสร็จก่อน เพื่อให้ getChatSession รู้ว่าเป็น Guest หรือ User
+    if (!activationChecked) return;
+
     // ตรวจสอบว่ามี session ID ใน URL หรือไม่
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get('session');
@@ -136,10 +317,19 @@ export const ChatInterface = () => {
               charts: m.charts,
               tables: m.tables,
               codeBlocks: m.codeBlocks,
+              planContent: m.planContent,
               isNewMessage: false // ข้อความจากประวัติไม่ต้องใช้ TextType animation
             }));
 
           setMessages(loadedMessages);
+          
+          // ค้นหา planContent ล่าสุดแล้วนำมาแสดง
+          const lastPlanMessage = [...loadedMessages].reverse().find(m => m.planContent);
+          if (lastPlanMessage && lastPlanMessage.planContent) {
+            setPlanContent(lastPlanMessage.planContent);
+            setShowPlanPanel(true);
+          }
+
           console.log('📝 Set messages to state:', loadedMessages.length, 'messages');
 
           // Clear URL parameter หลังโหลดเสร็จ (optional - เพื่อให้ URL สะอาด)
@@ -151,9 +341,14 @@ export const ChatInterface = () => {
         console.error('❌ Error loading session:', error);
       });
     }
-  }, [loadSession]);
+  }, [loadSession, activationChecked]);
 
   const handleSendChat = async (prompt: string, imageUrls?: string[], files?: File[], selectedTool?: string | null) => {
+    // Gate: ถ้ายังไม่ผ่าน activation ให้บล็อกการส่ง
+    if (!activationChecked || requireLogin) {
+      setRequireLogin(true);
+      return;
+    }
     // ป้องกันการส่งซ้ำ
     if (isLoading) {
       console.warn('⚠️ Request already in progress');
@@ -180,6 +375,11 @@ export const ChatInterface = () => {
 
     setIsLoading(true);
     setFollowUps([]);
+    setTypingComplete(false); // รีเซ็ตสถานะการพิมพ์เมื่อส่งข้อความใหม่
+    if (selectedTool) {
+      setPlanContent('');
+      setShowPlanPanel(true);
+    }
     stopRequestedRef.current = false;
     abortControllerRef.current = new AbortController();
     const controller = abortControllerRef.current;
@@ -239,448 +439,301 @@ export const ChatInterface = () => {
     // ตั้งค่าข้อความที่จะแสดงผลบน UI
     setMessages(newMessages);
 
-    // สร้าง System Message (สำหรับอ้างอิงในอนาคต หากต้องการ)
-    const systemMessage: Message = {
-      role: 'system',
-      content: SYSTEM_PROMPT
-    };
+    const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
-    const API_Rag = process.env.NEXT_PUBLIC_RAG_API_KEY;
-    
+    // แปลง PDF files เป็น base64 (แบบ parallel)
+    const pdfBase64Array: string[] = [];
+    if (files && files.length > 0) {
+      try {
+        const pdfPromises = files
+          .filter(file => file.type === 'application/pdf')
+          .map(file => new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          }));
+
+        const results = await Promise.all(pdfPromises);
+        pdfBase64Array.push(...results);
+        console.log('✅ Converted', pdfBase64Array.length, 'PDFs to base64');
+      } catch (error) {
+        console.error('❌ Error converting PDFs:', error);
+      }
+    }
+
+    // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ไม่ยัดระบบเป็น user)
+    const contents: any[] = [];
+    const recentMessages = messages.slice(-10); // เพิ่มหน่วยความจำย้อนหลัง
+    for (const msg of recentMessages) {
+      if (msg.role === 'user') {
+        const userParts: any[] = [{ text: msg.content }];
+        contents.push({
+          role: 'user',
+          parts: userParts
+        });
+      } else if (msg.role === 'assistant') {
+        // รวมเนื้อหาจากทั้ง content และ planContent (ถ้ามี) เพื่อให้ AI จำสิ่งที่ร่างไว้ในแผงข้างได้
+        const fullContent = msg.planContent 
+          ? `${msg.content}\n\n[เนื้อหาในแผงแผนงาน]:\n${msg.planContent}`
+          : msg.content;
+          
+        contents.push({
+          role: 'model',
+          parts: [{ text: fullContent }]
+        });
+      }
+    }
+
+    const currentParts: any[] = [];
+    for (const base64Image of permanentImageUrls) {
+      const base64Data = base64Image.split(',')[1];
+      const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
+      currentParts.push({
+        inlineData: {
+          mimeType: mimeType,
+          data: base64Data
+        }
+      });
+    }
+    for (const base64Pdf of pdfBase64Array) {
+      const base64Data = base64Pdf.split(',')[1];
+      currentParts.push({
+        inlineData: {
+          mimeType: 'application/pdf',
+          data: base64Data
+        }
+      });
+    }
+    if (prompt) {
+      currentParts.push({ text: prompt });
+    }
+    contents.push({
+      role: 'user',
+      parts: currentParts
+    });
+
+    // --- Automatic Tool Detection (AI Routing) ---
+    // ถ้าผู้ใช้ไม่ได้เลือกเครื่องมือมาเอง ให้ระบบช่วยวิเคราะห์จาก Prompt
+    let effectiveTool = selectedTool;
+    if (!effectiveTool) {
+      effectiveTool = detectToolHeuristic(prompt);
+      if (effectiveTool) {
+        console.log(`🤖 AI Auto-selected Tool: ${effectiveTool}`);
+      }
+    }
+
+    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller);
+  };
+
+  /**
+   * Unified logic to call Gemini API and process response
+   */
+  const performGeminiRequest = async (
+    contentsToSend: any[],
+    selectedTool: string | null = null,
+    files?: File[],
+    sessionId?: string | null,
+    controller?: AbortController
+  ) => {
+    const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
     try {
-      // ตรวจสอบว่าเลือก "เขียนแผนงาน" หรือไม่
-      if (selectedTool === 'เขียนแผนงาน' || selectedTool === 'ฐานข้อมูล' || selectedTool === 'สร้างกราฟ' || selectedTool === 'สรุปรายงาน' || selectedTool === 'ขอคำปรึกษา' || selectedTool === 'เทียบข้อมูล') {
-        console.log('📝 Using Planning API for:', prompt);
-        console.log('📝 Selected tool:', selectedTool);
-        const filePaths = (files ?? []).map(f => {
-          const anyFile = f as any;
-          return anyFile.webkitRelativePath || anyFile.relativePath || f.name;
-        });
-        console.log('📡 Planning file paths:', filePaths);
-        console.log('📡 Planning with files:', files);
-        
-        
+      const isSpecialTool = !!(selectedTool && [
+        'เขียนแผนงาน', 'แผนงาน 3 วัน', 'แผนงาน 7 วัน', 'แผนงาน 1 เดือน',
+        'ฐานข้อมูล', 'สร้างกราฟ', 'สรุปรายงาน', 'ขอคำปรึกษา', 'เทียบข้อมูล'
+      ].includes(selectedTool));
+      const modelName = "gemini-2.0-flash-exp";
       
+      let accumulatedResponse = "";
+      let currentContents = [...contentsToSend];
+      
+      // กำหนดค่า Config และ System Instruction ตามประเภทการใช้งาน
+      let currentSystemPrompt = SYSTEM_PROMPT;
+      
+      if (isSpecialTool) {
+        if (selectedTool?.includes('แผนงาน') || selectedTool === 'เขียนแผนงาน') {
+          currentSystemPrompt = PLANNING_PROMPT;
+        } else if (selectedTool === 'สรุปรายงาน') {
+          currentSystemPrompt = PROMPT_SUMMARY;
+        } else if (selectedTool === 'ขอคำปรึกษา') {
+          currentSystemPrompt = PROMPT_CONSULT;
+        } else if (selectedTool === 'เทียบข้อมูล' || selectedTool === 'เปรียบเทียบข้อมูล') {
+          currentSystemPrompt = PROMPT_COMPARE;
+        } else if (selectedTool === 'สร้างกราฟ') {
+          currentSystemPrompt = PROMPT_CHART_DOC;
+        } else if (selectedTool === 'ฐานข้อมูล' || selectedTool === 'ค้นหาข้อมูล') {
+          currentSystemPrompt = PROMPT_SEARCH;
+        }
+      }
 
-        // เรียก API ใหม่ (SSE stream)
-        const planningResponse = await fetch(`${API_Rag}/qa/stream`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+      const systemInstruction = {
+        role: 'system',
+        parts: [{ 
+          text: isSpecialTool 
+            ? currentSystemPrompt + "\n\n(สำคัญ: โปรดเขียนเนื้อหาให้ละเอียดที่สุด หากเนื้อหายังไม่จบให้เขียนต่อไปเรื่อยๆ ในส่วนถัดๆ ไป)" 
+            : SYSTEM_PROMPT 
+        }]
+      };
+
+      const generationConfig = {
+        temperature: isSpecialTool ? 0.8 : 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: isSpecialTool ? 2048 : 8192,
+      };
+
+      // เพิ่มคำสั่งขยายความหากเป็นเครื่องมือพิเศษ พร้อมเตือนความจำถึงภารกิจหลัก
+      if (isSpecialTool && currentContents.length > 0) {
+        const lastPart = currentContents[currentContents.length - 1].parts[0];
+        if (lastPart.text) {
+          lastPart.text += `\n\n(ภารกิจปัจจุบัน: ${selectedTool} - โปรดอธิบายให้ละเอียดที่สุด ครบถ้วนทุกมิติ และเขียนให้ยาวที่สุดเท่าที่เป็นไปได้เพื่อให้ได้เอกสารที่สมบูรณ์)`;
+        }
+      }
+
+      // --- ส่วนการเรียก API (Unified Flow) ---
+      let iteration = 1;
+      let hasMoreContent = true;
+      const MAX_CHUNKS = isSpecialTool ? 3 : 1; 
+
+      while (hasMoreContent && !stopRequestedRef.current && iteration <= MAX_CHUNKS) {
+        console.log(`📡 Fetching chunk ${iteration} (isSpecial: ${isSpecialTool})...`);
+        
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            query: prompt,
-            is_database: selectedTool === 'ฐานข้อมูล' ? true : false
-            , files: filePaths
-            
+            system_instruction: systemInstruction,
+            contents: currentContents,
+            generationConfig: generationConfig
           }),
           signal: controller?.signal
         });
 
-        if (!planningResponse.ok) {
-          throw new Error(`Planning API failed: ${planningResponse.status}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`API failed: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
         }
 
-        // สร้าง AI message เปล่าๆ ก่อน
-        const aiMessageIndex = newMessages.length;
-        const aiMessage: Message = {
-          role: 'assistant',
-          content: '',
-          isNewMessage: true,
-          noTyping: true // ปิด TextType ชั่วคราวสำหรับข้อความจาก Planning API
-        };
-
+        const data = await response.json();
+        const chunkText: string = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         
-        
-
-        setMessages(prevMessages => [...prevMessages, aiMessage]);
-        setTypingComplete(false);
-
-        console.log(aiMessage)
-
-        // อ่าน stream และสะสมข้อความ
-        const reader = planningResponse.body?.getReader();
-        const decoder = new TextDecoder();
-        let accumulatedContent = '';
-        console.log(reader)
-        console.log(decoder)
-
-        if (reader) {
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-
-              const chunk = decoder.decode(value, { stream: true });
-              const lines = chunk.split('\n');
-              
-
-              for (const line of lines) {
-                if (line.startsWith('data: ')) {
-                  const content = line.slice(6); // ตัด "data: " ออก
-                  if (content && content !== '[DONE]' && content.trim() !== '') {
-                    accumulatedContent += content;
-                    console.log('🧩 Received chunk:', content);
-                    // อัปเดต UI แบบ real-time
-                    setMessages(prevMessages => {
-                  
-                      const updated = [...prevMessages];
-                      updated[aiMessageIndex] = {
-                        ...updated[aiMessageIndex],
-                        content: accumulatedContent
-                      };
-                      return updated;
-                    });
-                  }
-                }
-              }
-            }
-          } catch (error) {
-            console.error('❌ Error reading stream:', error);
-          }
-        }
-
-        console.log('✅ Planning API stream completed. Total length:', accumulatedContent.length);
-
-        // ถ้าผู้ใช้กดหยุด ไม่บันทึกข้อความ และออกทันที
-        if (stopRequestedRef.current) {
-          setIsLoading(false);
-          return;
-        }
-
-        // ดึง follow-ups และลบส่วนหัวข้อออกจากข้อความหลัก
-        const { cleaned, followUps: fups } = extractFollowUpsAndClean(accumulatedContent);
-        const cleanedSanitized = sanitizeTail(cleaned);
-
-        // อัปเดตข้อความล่าสุดให้เป็นเวอร์ชันที่ถูกลบส่วน follow-ups ออก
-        setMessages(prev => {
-          const updated = [...prev];
-          if (updated[aiMessageIndex]) {
-            updated[aiMessageIndex] = { ...updated[aiMessageIndex], content: cleanedSanitized };
-          }
-          return updated;
-        });
-        setFollowUps(fups);
-
-        // บันทึก AI response ลง localStorage
-        if (sessionId) {
-          await addMessageToSession(sessionId, {
-            role: 'assistant',
-            content: cleanedSanitized,
-            timestamp: new Date().toISOString()
-          });
-        }
-
-        setIsLoading(false);
-        return; // จบการทำงานที่นี่ ไม่ต้องเรียก Gemini API
-      }
-      // แปลง PDF files เป็น base64 (แบบ parallel)
-      const pdfBase64Array: string[] = [];
-      if (files && files.length > 0) {
-        try {
-          const pdfPromises = files
-            .filter(file => file.type === 'application/pdf')
-            .map(file => new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(file);
-            }));
-
-          const results = await Promise.all(pdfPromises);
-          pdfBase64Array.push(...results);
-          console.log('✅ Converted', pdfBase64Array.length, 'PDFs to base64');
-        } catch (error) {
-          console.error('❌ Error converting PDFs:', error);
-        }
-      }
-
-      // ใช้ Google Gemini API โดยตรง
-      const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
-      console.log('📡 Using google API endpoint:', process.env.NEXT_PUBLIC_ANALYTICS_ID);
-
-
-      // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ไม่ยัดระบบเป็น user)
-      const contents: any[] = [];
-
-      // เพิ่ม conversation history (ไม่เกิน 10 ข้อความล่าสุด เพื่อประหยัด token)
-      // และไม่รวมรูปภาพจาก history เพื่อลดขนาด request
-      const recentMessages = messages.slice(-10);
-      for (const msg of recentMessages) {
-        if (msg.role === 'user') {
-          const userParts: any[] = [{ text: msg.content }];
-
-          // หมายเหตุ: ไม่ส่งรูปภาพจาก history เพื่อประหยัด bandwidth และ token
-          // เนื่องจาก Gemini API มี context window จำกัด
-          // ถ้าต้องการส่งรูปจาก history ให้เปิด comment ด้านล่าง
-
-          // if (msg.images && msg.images.length > 0 && msg.images.length <= 2) {
-          //   for (const base64Image of msg.images.slice(0, 2)) { // จำกัดแค่ 2 รูปแรก
-          //     const base64Data = base64Image.split(',')[1];
-          //     const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
-          //     userParts.push({
-          //       inlineData: {
-          //         mimeType: mimeType,
-          //         data: base64Data
-          //       }
-          //     });
-          //   }
-          // }
-
-          contents.push({
-            role: 'user',
-            parts: userParts
-          });
-        } else if (msg.role === 'assistant') {
-          contents.push({
-            role: 'model',
-            parts: [{ text: msg.content }]
-          });
-        }
-      }
-
-      // สร้าง parts สำหรับข้อความปัจจุบัน
-      const currentParts: any[] = [];
-
-      // เพิ่มรูปภาพ
-      for (const base64Image of permanentImageUrls) {
-        const base64Data = base64Image.split(',')[1];
-        const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
-        currentParts.push({
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data
-          }
-        });
-      }
-
-      // เพิ่ม PDF
-      for (const base64Pdf of pdfBase64Array) {
-        const base64Data = base64Pdf.split(',')[1];
-        currentParts.push({
-          inlineData: {
-            mimeType: 'application/pdf',
-            data: base64Data
-          }
-        });
-      }
-
-      // เพิ่มข้อความ
-      if (prompt) {
-        currentParts.push({ text: prompt });
-      }
-
-      // เพิ่ม message ปัจจุบันเข้าไป
-      contents.push({
-        role: 'user',
-        parts: currentParts
-      });
-
-      console.log('📊 Sending', contents.length, 'messages to API');
-
-      // Retry mechanism
-      let retries = 3;
-      let lastError: Error | null = null;
-      let response: Response | null = null;
-
-      while (retries > 0) {
-        try {
-          response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              system_instruction: {
-                role: 'system',
-                parts: [{ text: SYSTEM_PROMPT }]
-              },
-              contents: contents,
-              generationConfig: {
-                temperature: 0.7,
-                topK: 40,
-                topP: 0.95,
-                maxOutputTokens: 8192,
-              }
-            }),
-            signal: controller?.signal
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error("❌ API Error Response:", errorData);
-
-            // ถ้าเป็น rate limit error ให้ retry
-            if (response.status === 429 && retries > 1) {
-              console.warn('⚠️ Rate limit hit, retrying in 2s...');
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              retries--;
-              continue;
-            }
-
-            throw new Error(`API request failed: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
-          }
-
-          // Success - break out of retry loop
-          lastError = null;
+        if (!chunkText || (isSpecialTool && iteration > 1 && chunkText.length < 150)) {
+          hasMoreContent = false;
           break;
-        } catch (error: any) {
-          // ถ้าถูกยกเลิก ให้ยุติ retry ทันที
-          if (error?.name === 'AbortError' || stopRequestedRef.current) {
-            lastError = error;
-            break;
-          }
-          lastError = error;
-          retries--;
-
-          if (retries > 0) {
-            console.warn(`⚠️ Request failed, retrying... (${retries} attempts left)`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
         }
+
+        accumulatedResponse += chunkText;
+        
+        if (isSpecialTool) {
+          setPlanContent(accumulatedResponse);
+          currentContents.push({ role: 'model', parts: [{ text: chunkText }] });
+          // เพิ่ม Prompt เตือนความจำในการเขียน Chunk ถัดไป
+          currentContents.push({ 
+            role: 'user', 
+            parts: [{ 
+              text: `เนื้อหายังไม่สมบูรณ์ โปรดเขียนเนื้อหาในส่วนถัดไปของ "${selectedTool}" ให้ละเอียดและต่อเนื่องจากเดิมทันที โดยมุ่งเน้นความลุ่มลึกและข้อมูลที่ครบถ้วน (ห้ามทวนความเดิมและห้ามสรุปจบจนกว่าเนื้อหาจะครบถ้วน)` 
+            }] 
+          });
+        }
+
+        iteration++;
       }
 
       if (stopRequestedRef.current) {
-        // ถูกยกเลิก ไม่ต้องทำต่อ
         setIsLoading(false);
         return;
       }
 
-      if (lastError || !response) {
-        throw lastError || new Error('Failed to get response');
-      }
-
-      const data = await response.json();
-      console.log('✅ Got API response');
-
-      // Gemini API ส่ง response ในรูปแบบ candidates[0].content.parts[0].text
-      const aiResponse: string = data.candidates?.[0]?.content?.parts?.[0]?.text || "ขออภัย ไม่สามารถสร้างคำตอบได้";
-
-      if (!aiResponse || aiResponse === "ขออภัย ไม่สามารถสร้างคำตอบได้") {
-        console.error('❌ Empty or invalid AI response');
-        throw new Error('Invalid AI response');
-      }
-
-      console.log('📝 AI response length:', aiResponse.length, 'characters');
-
-      // แยก charts, tables, และ code blocks จากข้อความ
-      const charts: any[] = [];
-      const tables: any[] = [];
-      const codeBlocks: Array<{ code: string; language: string }> = [];
-      let cleanedContent = aiResponse;
-
-      // แยก ```json:chart blocks
-      const chartRegex = /```json:chart\n([\s\S]*?)```/g;
-      let chartMatch;
-      while ((chartMatch = chartRegex.exec(aiResponse)) !== null) {
-        try {
-          const chartData = JSON.parse(chartMatch[1]);
-          charts.push(chartData);
-          cleanedContent = cleanedContent.replace(chartMatch[0], '');
-        } catch (e) {
-          console.error('Error parsing chart:', e);
+      // --- ส่วนการประมวลผลคำตอบสุดท้าย ---
+      if (isSpecialTool) {
+        const attachedFilenames = files && files.length > 0 
+          ? `\n\n📁 **ไฟล์ที่แนบ:** ${files.map(f => f.name).join(', ')}` 
+          : '';
+        
+        const statusMessage: Message = {
+          role: 'assistant',
+          content: `✅ ดำเนินการ${selectedTool}ให้เรียบร้อยแล้วครับ! ระบบได้ร่างรายละเอียดเชิงลึกไว้ในแผงด้านขวาแล้ว${attachedFilenames}`,
+          planContent: accumulatedResponse,
+          isNewMessage: true
+        };
+        setMessages(prev => [...prev, statusMessage]);
+        
+        if (sessionId) {
+          await addMessageToSession(sessionId, {
+            role: 'assistant',
+            content: statusMessage.content,
+            planContent: accumulatedResponse,
+            timestamp: new Date().toISOString()
+          });
         }
-      }
-
-      // แยก ```json:table blocks
-      const tableRegex = /```json:table\n([\s\S]*?)```/g;
-      let tableMatch;
-      while ((tableMatch = tableRegex.exec(aiResponse)) !== null) {
-        try {
-          const tableData = JSON.parse(tableMatch[1]);
-          tables.push(tableData);
-          cleanedContent = cleanedContent.replace(tableMatch[0], '');
-        } catch (e) {
-          console.error('Error parsing table:', e);
-        }
-      }
-
-      // แยก code blocks ปกติ
-      const codeRegex = /```(\w+)\n([\s\S]*?)```/g;
-      let codeMatch;
-      while ((codeMatch = codeRegex.exec(aiResponse)) !== null) {
-        const langRaw = codeMatch[1];
-        const language = (langRaw || '').toLowerCase();
-        const code = codeMatch[2];
-
-        // ข้าม json (มีการประมวลผลสำหรับ chart/table ไว้แล้วด้านบน)
-        if (language === 'json') continue;
-
-        // กรณี AI ใส่ Markdown ในรั้วโค้ด ให้คลี่ออกเป็นข้อความ Markdown ปกติ
-        if (language === 'markdown' || language === 'md') {
-          cleanedContent = cleanedContent.replace(codeMatch[0], code);
-          continue;
-        }
-
-        // เก็บ code อื่นๆ เป็น codeBlocks และตัดออกจากข้อความหลัก
-        codeBlocks.push({ code, language });
-        cleanedContent = cleanedContent.replace(codeMatch[0], '');
-      }
-
-      // ตัดหัวข้อคำถามต่อ และเตรียม follow-ups
-      const { cleaned: finalContent, followUps: fups } = extractFollowUpsAndClean(cleanedContent.trim());
-      const finalSanitized = sanitizeTail(finalContent);
-
-      // สร้าง AI message object (หลังลบส่วน follow-ups ออกแล้ว)
-      const aiMessage: Message = {
-        role: 'assistant',
-        content: finalSanitized,
-        charts: charts.length > 0 ? charts : undefined,
-        tables: tables.length > 0 ? tables : undefined,
-        codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
-        isNewMessage: true // ข้อความใหม่จาก AI ให้ใช้ TextType animation
-      };
-
-      // เพิ่มคำตอบของ AI ลงใน State
-      setMessages(prevMessages => [...prevMessages, aiMessage]);
-      setTypingComplete(false);
-
-      // อัปเดต follow-ups เพื่อแสดงเป็นชิป
-      setFollowUps(fups);
-
-      // บันทึก AI response ลง localStorage
-      if (sessionId) {
-        await addMessageToSession(sessionId, {
-          ...aiMessage,
-          timestamp: new Date().toISOString()
+      } else {
+        // ประมวลผลสำหรับแชทปกติ (Charts, Tables, CodeBlocks)
+        const charts: any[] = [];
+        const tables: any[] = [];
+        const codeBlocks: Array<{ code: string; language: string }> = [];
+        
+        let processedContent = accumulatedResponse.replace(/```json:chart\s*\n?([\s\S]*?)```/g, (match, p1) => {
+          try {
+            const chartData = JSON.parse(p1);
+            charts.push(chartData);
+            return `<ChartAI index="${charts.length - 1}" />`;
+          } catch (e) { return match; }
         });
+
+        processedContent = processedContent.replace(/```json:table\s*\n?([\s\S]*?)```/g, (match, p1) => {
+          try {
+            const tableData = JSON.parse(p1);
+            tables.push(tableData);
+            return `<TableAI index="${tables.length - 1}" />`;
+          } catch (e) { return match; }
+        });
+
+        processedContent = processedContent.replace(/```(\w+)?\s*\n?([\s\S]*?)```/g, (match, langRaw, code) => {
+          const language = (langRaw || '').toLowerCase();
+          if (language === 'markdown' || language === 'md') return code;
+          codeBlocks.push({ code, language });
+          return `<CodeBlockAI index="${codeBlocks.length - 1}" />`;
+        });
+
+        const { cleaned: finalContent, followUps: fups } = extractFollowUpsAndClean(processedContent.trim());
+        const finalSanitized = sanitizeTail(finalContent);
+
+        const aiMessage: Message = {
+          role: 'assistant',
+          content: finalSanitized,
+          charts: charts.length > 0 ? charts : undefined,
+          tables: tables.length > 0 ? tables : undefined,
+          codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
+          isNewMessage: true
+        };
+
+        setMessages(prevMessages => [...prevMessages, aiMessage]);
+        setTypingComplete(false);
+        setFollowUps(fups);
+
+        if (sessionId) {
+          await addMessageToSession(sessionId, { ...aiMessage, timestamp: new Date().toISOString() });
+        }
       }
 
     } catch (error: any) {
-      // ถ้าเป็นการยกเลิกโดยผู้ใช้ ไม่ต้องแสดง error
       if (error?.name === 'AbortError' || stopRequestedRef.current) {
         console.warn('🛑 Request aborted by user');
       } else {
         console.error("❌ Error fetching AI response:", error);
-
-        // สร้าง error message ที่เป็นมิตรกับผู้ใช้
         let errorMessage = "ขออภัย เกิดข้อผิดพลาดในการติดต่อ AI";
+        if (error.message?.includes('Failed to fetch')) errorMessage = "❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้";
+        else if (error.message?.includes('429')) errorMessage = "⚠️ ขออภัย มีการใช้งานเกินกำหนด";
+        else if (error.message?.includes('timeout')) errorMessage = "⏱️ หมดเวลาในการรอคำตอบ";
+        else if (error.message) errorMessage = `❌ เกิดข้อผิดพลาด: ${error.message}`;
 
-        if (error.message?.includes('Failed to fetch')) {
-          errorMessage = "❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต";
-        } else if (error.message?.includes('429')) {
-          errorMessage = "⚠️ ขออภัย มีการใช้งานเกินกำหนด กรุณาลองใหม่อีกครั้งในอีกสักครู่";
-        } else if (error.message?.includes('timeout')) {
-          errorMessage = "⏱️ หมดเวลาในการรอคำตอบ กรุณาลองใหม่อีกครั้ง";
-        } else if (error.message?.includes('400')) {
-          errorMessage = "❌ ข้อมูลที่ส่งไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง";
-        } else if (error.message?.includes('401') || error.message?.includes('403')) {
-          errorMessage = "🔐 ไม่มีสิทธิ์เข้าถึง API กรุณาติดต่อผู้ดูแลระบบ";
-        } else if (error.message) {
-          errorMessage = `❌ เกิดข้อผิดพลาด: ${error.message}`;
-        }
-
-        setMessages(prevMessages => [
-          ...prevMessages,
-          {
-            role: 'assistant',
-            content: `${errorMessage}\n\n💡 **คำแนะนำ:**\n• ลองส่งข้อความอีกครั้ง\n• ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต\n• ถ้ายังไม่ได้ กรุณารีเฟรชหน้าเว็บ`
-          }
-        ]);
+        setMessages(prevMessages => [...prevMessages, {
+          role: 'assistant',
+          content: `${errorMessage}\n\n💡 กรุณาลองใหม่อีกครั้ง`
+        }]);
       }
     } finally {
       setIsLoading(false);
-      console.log('✅ Request completed');
     }
   };
 
@@ -747,13 +800,6 @@ export const ChatInterface = () => {
     setIsLoading(false);
   };
 
-  // ฟังก์ชันเริ่มแชทใหม่
-  const handleNewChat = () => {
-    setMessages([]);
-    window.history.replaceState({}, '', '/');
-    console.log('Started new chat');
-  };
-
   // ฟังก์ชัน Regenerate
   const handleRegenerate = async (messageIndex: number) => {
     console.log('🔄 Regenerating message at index:', messageIndex);
@@ -791,190 +837,133 @@ export const ChatInterface = () => {
     console.log('📝 Found user message at index:', userMessageIndex);
     console.log('💬 User message:', userMessage.content.substring(0, 50) + '...');
 
-    // รักษา conversation context โดยเก็บข้อความก่อนหน้า AI message ที่จะ regenerate
-    const contextMessages = messages.slice(0, messageIndex);
+    // รักษา conversation context โดยเก็บข้อความก่อนหน้าที่ส่ง User Prompt ครั้งนั้น
+    // เพื่อให้การเรียก handleSendChat ด้านล่างไม่เป็นการเพิ่มข้อความซ้ำ
+    const contextMessages = messages.slice(0, userMessageIndex);
     setMessages(contextMessages);
 
     // รอให้ UI update
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // ส่ง request ใหม่พร้อม context
+    // ส่ง request ใหม่พร้อม context และรูปภาพเดิม
     await handleSendChat(
       userMessage.content,
-      userMessage.images,
+      userMessage.images || [],
       [] // ไม่มีไฟล์ในการ regenerate
     );
 
     console.log('✅ Regeneration completed');
   };
 
-  // ฟังก์ชัน Copy (แสดง toast notification)
-  const handleCopy = (content: string) => {
-    console.log('📋 Copied to clipboard');
-    // อาจเพิ่ม toast notification ในอนาคต
-  };
-
   // ฟังก์ชันแก้ไขข้อความ
   const handleEdit = async (messageIndex: number, newContent: string) => {
     console.log('✏️ Editing message at index:', messageIndex);
 
-    // อัปเดตข้อความที่แก้ไข
-    const updatedMessages = [...messages];
-    const originalImages = updatedMessages[messageIndex].images;
+    const userMessage = messages[messageIndex];
+    if (!userMessage) return;
 
-    updatedMessages[messageIndex] = {
-      ...updatedMessages[messageIndex],
-      content: newContent
-    };
-
-    // ลบข้อความหลังจากข้อความที่แก้ไข (รวมถึงคำตอบของ AI)
-    const newMessages = updatedMessages.slice(0, messageIndex + 1);
-    setMessages(newMessages);
+    // ตัดประวัติข้อความเหลือแค่ก่อนถึงข้อความที่แก้ไข
+    // เพื่อไม่ให้เกิดข้อความซ้ำเมื่อ handleSendChat ทำงาน
+    const contextMessages = messages.slice(0, messageIndex);
+    setMessages(contextMessages);
 
     // รอให้ UI update
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    setIsLoading(true);
     console.log('📤 Re-sending edited message');
 
-    try {
-      const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
-
-      // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ระบบจะถูกส่งใน system_instruction)
-      const contents: any[] = [];
-
-      // เพิ่ม conversation history จนถึงข้อความที่แก้ไข
-      for (const msg of newMessages) {
-        if (msg.role === 'user') {
-          const userParts: any[] = [{ text: msg.content }];
-
-          // เพิ่มรูปภาพถ้ามี
-          if (msg.images && msg.images.length > 0) {
-            for (const base64Image of msg.images) {
-              const base64Data = base64Image.split(',')[1];
-              const mimeType = base64Image.match(/data:(.*?);/)?.[1] || 'image/jpeg';
-              userParts.push({
-                inlineData: {
-                  mimeType: mimeType,
-                  data: base64Data
-                }
-              });
-            }
-          }
-
-          contents.push({
-            role: 'user',
-            parts: userParts
-          });
-        } else if (msg.role === 'assistant') {
-          contents.push({
-            role: 'model',
-            parts: [{ text: msg.content }]
-          });
-        }
-      }
-
-      console.log('📨 Sending to Gemini API with', contents.length, 'messages');
-
-      // เรียก Gemini API
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: {
-              role: 'system',
-              parts: [{ text: SYSTEM_PROMPT }]
-            },
-            contents
-          })
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('❌ API Error:', errorData);
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ Received AI response');
-
-      // ดึงข้อความจาก response
-      let aiResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || 'ขออภัย ไม่สามารถสร้างคำตอบได้';
-
-      // ลบ system prompt ออกจากคำตอบถ้ามี
-      if (aiResponseText.includes(SYSTEM_PROMPT)) {
-        aiResponseText = aiResponseText.replace(SYSTEM_PROMPT, '').trim();
-      }
-
-      // สร้าง AI message object
-      const aiMessage: Message = {
-        role: 'assistant',
-        content: aiResponseText.trim(),
-        isNewMessage: true
-      };
-
-      // เพิ่มคำตอบของ AI ลงใน State
-      setMessages(prevMessages => [...prevMessages, aiMessage]);
-      setTypingComplete(false);
-
-      // บันทึก AI response ลง session
-      if (currentSessionId) {
-        await addMessageToSession(currentSessionId, {
-          ...aiMessage,
-          timestamp: new Date().toISOString()
-        });
-      }
-
-    } catch (error: any) {
-      console.error("❌ Error in edit regenerate:", error);
-      setMessages(prevMessages => [
-        ...prevMessages,
-        {
-          role: 'assistant',
-          content: `❌ เกิดข้อผิดพลาด: ${error.message}\n\n💡 กรุณาลองใหม่อีกครั้ง`
-        }
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-
-    console.log('✅ Message edited and regenerated');
+    // เรียก handleSendChat โดยส่งเนื้อหาที่แก้ไข
+    await handleSendChat(
+      newContent,
+      userMessage.images || [],
+      []
+    );
   };
 
   return (
-    // เปลี่ยน layout ให้เป็น Flex Column เต็มจอ
-    <div className='h-screen bg-gray-100 flex flex-col'>
+    // เปลี่ยน layout ให้เป็น Flex Column เต็มจอ (ใช้พื้นหลังสีขาวเพื่อให้ดูคลีนขึ้น)
+    <div className='h-screen bg-white flex flex-col'>
+      {/* Activation Gate Banner + Popup */}
+      {activationChecked && requireLogin && (
+        <div className="bg-yellow-100 text-yellow-900 border border-yellow-300 px-4 py-2 text-sm text-center">
+          {userStatus === 'Inactive' ? 'บัญชีของคุณยังไม่เปิดใช้งาน โปรดเข้าสู่ระบบหรือติดต่อผู้ดูแลระบบ' : 'กรุณาเข้าสู่ระบบเพื่อใช้งานระบบ'}
+        </div>
+      )}
+
+      {/* Inline Login Popup when required */}
+      <LoginPopup
+        isOpen={requireLogin}
+        onClose={() => setRequireLogin(true)}
+        onLoginSuccess={handleLoginSuccess}
+      />
 
       {/* Header พร้อมปุ่ม New Chat */}
 
 
       {/* ส่วนแสดงผลแชท หรือ หน้าจอ Welcome */}
-      <div className='flex-1 flex flex-col items-center w-full overflow-y-auto pt-8'>
-        <div className="w-full max-w-7xl">
-          {messages.length === 0 ? (
-            <WelcomeScreen onSuggestionClick={handleSendChat} />
-          ) : (
-            <MessageList
-              messages={messages}
-              isLoading={isLoading}
-              onRegenerate={handleRegenerate}
-              onCopy={handleCopy}
-              onEdit={handleEdit}
-              onTypingComplete={(index) => {
-                // แสดง followUps เฉพาะเมื่อข้อความล่าสุดของ AI พิมพ์เสร็จ
-                const isLast = index === messages.filter(m => m.role !== 'system').length - 1;
-                if (isLast) setTypingComplete(true);
-              }}
-            />
-          )}
-        </div>
+      <div className={`flex-1 flex w-full overflow-hidden pt-2 ${isResizing ? 'cursor-col-resize select-none' : ''}`}>
+        {messages.length === 0 ? (
+          <div className="flex-1 overflow-y-auto flex flex-col items-center">
+            <div className="w-full max-w-4xl px-4">
+              <WelcomeScreen onSuggestionClick={handleSendChat} />
+            </div>
+          </div>
+        ) : (
+          <div className='flex w-full h-full'>
+            {/* Left Side: MessageList */}
+            <div 
+              className={`overflow-y-auto flex flex-col items-center ${showPlanPanel ? 'border-r border-gray-200' : ''} ${isResizing ? 'pointer-events-none' : ''}`} 
+              style={{ width: showPlanPanel ? `${leftWidth}%` : '100%' }}
+            >
+              <div className="w-full max-w-3xl">
+                <MessageList
+                  messages={messages}
+                  isLoading={isLoading}
+                  onRegenerate={handleRegenerate}
+                  onEdit={handleEdit}
+                  onViewPlan={(content) => {
+                    setPlanContent(content);
+                    setShowPlanPanel(true);
+                  }}
+                  onTypingComplete={(index) => {
+                    // แสดง followUps เฉพาะเมื่อข้อความล่าสุดของ AI พิมพ์เสร็จ
+                    const isLast = index === messages.filter(m => m.role !== 'system').length - 1;
+                    if (isLast) setTypingComplete(true);
+                  }}
+                />
+              </div>
+            </div>
+
+            {showPlanPanel && (
+              <>
+                {/* Resizer Divider */}
+                <div
+                  className={`w-1.5 hover:w-2 cursor-col-resize bg-gray-200 hover:bg-blue-400 transition-all flex items-center justify-center relative z-10 ${isResizing ? 'bg-blue-500 w-2' : ''}`}
+                  onMouseDown={startResizing}
+                >
+                  <div className="h-10 w-0.5 bg-gray-400 rounded-full"></div>
+                </div>
+
+                {/* Right Side: ProjectPlan */}
+                <div 
+                  className={`flex-1 overflow-y-auto bg-white ${isResizing ? 'pointer-events-none' : ''}`}
+                >
+                  <div className="p-6 h-full">
+                    <ProjectPlan 
+                      content={planContent} 
+                      isLoading={isLoading} 
+                      onClose={() => setShowPlanPanel(false)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ส่วน Input (จะอยู่ที่ด้านล่างเสมอ) */}
-      <div className="w-full p-4 flex justify-center sticky bottom-0 bg-gray-100">
+      <div className="w-full p-4 flex justify-center sticky bottom-0 bg-white shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <div className="w-full max-w-3xl">
           {followUps.length > 0 && typingComplete && (
             <div className="mb-3 flex flex-wrap gap-1.5 md:gap-2">
@@ -982,7 +971,7 @@ export const ChatInterface = () => {
                 <button
                   key={`fu-${i}`}
                   onClick={() => handleSendChat(q)}
-                  className="px-2.5 py-1 md:px-3 md:py-1.5 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-100 transition-colors text-xs md:text-sm shadow-sm leading-tight break-words max-w-full"
+                  className="px-2.5 py-1 md:px-3 md:py-1.5 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors text-xs md:text-sm shadow-sm leading-tight break-words max-w-full"
                   title="คลิกเพื่อถามต่อ"
                 >
                   {q}

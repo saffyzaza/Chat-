@@ -82,7 +82,7 @@ export const LoginPopup = ({ isOpen, onClose, onLoginSuccess }: LoginPopupProps)
           className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
           aria-label="Close"
         >
-          <IoClose size={28} />
+          {/* <IoClose size={28} /> */}
         </button>
 
         {/* Header */}

@@ -39,7 +39,7 @@ export async function GET(
 
     // ดึง messages
     const messagesQuery = `
-      SELECT id, role, content, images, charts, tables, code_blocks, created_at
+      SELECT id, role, content, images, charts, tables, code_blocks, plan_content, created_at
       FROM chat_messages 
       WHERE session_id = $1
       ORDER BY created_at ASC
@@ -62,6 +62,7 @@ export async function GET(
           charts: msg.charts || [],
           tables: msg.tables || [],
           codeBlocks: msg.code_blocks || [],
+          planContent: msg.plan_content,
           timestamp: msg.created_at
         }))
       }

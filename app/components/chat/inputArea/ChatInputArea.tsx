@@ -59,7 +59,6 @@ interface ChatInputAreaProps {
 const TOOL_PROMPTS = {
   search: "ช่วยค้นหาข้อมูลเกี่ยวกับข้อมูลนี้",
   compare: "ช่วยเปรียบเทียบข้อมูลนี้",
-  consult: "ต้องการคำปรึกษาเกี่ยวกับข้อมูลนี้",
   summary: "ช่วยสรุปข้อมูลนี้",
   chart: "ช่วยสร้างกราฟจากข้อมูลนี้",
   plan: "ช่วยวางแผนจากข้อมูลนี้",
@@ -148,10 +147,12 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
       const toolMap: { [key: string]: string } = {
         'ค้นหาข้อมูล': TOOL_PROMPTS.search,
         'เปรียบเทียบข้อมูล': TOOL_PROMPTS.compare,
-        'ขอคำปรึกษา': TOOL_PROMPTS.consult,
         'สรุปรายงาน': TOOL_PROMPTS.summary,
         'สร้างกราฟ': TOOL_PROMPTS.chart,
         'เขียนแผนงาน': TOOL_PROMPTS.plan,
+        'แผนงาน 3 วัน': "ช่วยวางแผนงานระยะสั้น 3 วัน จากข้อมูลนี้",
+        'แผนงาน 7 วัน': "ช่วยวางแผนงาน 7 วัน จากข้อมูลนี้",
+        'แผนงาน 1 เดือน': "ช่วยวางแผนงานระยะยาว 1 เดือน จากข้อมูลนี้",
         'ฐานข้อมูล': TOOL_PROMPTS.database
       };
       finalPrompt = toolMap[selectedTool] || "";
@@ -563,14 +564,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                     setSelectedTool('เปรียบเทียบข้อมูล');
                   }}
                 />
-                <PopupMenuItem 
+                {/* <PopupMenuItem 
                   icon={<IoHelpCircleOutline size={22} className="text-gray-600" />} 
                   text="ขอคำปรึกษา"
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('ขอคำปรึกษา');
                   }}
-                />
+                /> */}
                 <PopupMenuItem 
                   icon={<IoDocumentTextOutline size={22} className="text-gray-600" />} 
                   text="สรุปรายงาน"
@@ -595,6 +596,26 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                     setSelectedTool('เขียนแผนงาน');
                   }}
                 />
+                <div className="flex flex-col ml-9 border-l border-gray-100 pl-2 space-y-1">
+                  <button 
+                    className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
+                    onClick={() => { setOpenPopup(null); setSelectedTool('แผนงาน 3 วัน'); }}
+                  >
+                    • ระยะสั้น 3 วัน
+                  </button>
+                  <button 
+                    className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
+                    onClick={() => { setOpenPopup(null); setSelectedTool('แผนงาน 7 วัน'); }}
+                  >
+                    • ระยะกลาง 7 วัน
+                  </button>
+                  <button 
+                    className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
+                    onClick={() => { setOpenPopup(null); setSelectedTool('แผนงาน 1 เดือน'); }}
+                  >
+                    • ระยะยาว 1 เดือน
+                  </button>
+                </div>
                 <PopupMenuItem 
                   icon={<CiDatabase size={22} className="text-gray-600" />} 
                   text="ฐานข้อมูล"
