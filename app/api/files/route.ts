@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';
 import { Pool } from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 
 // รองรับทั้ง local filesystem (สำหรับ external API) และ MinIO
@@ -298,7 +297,9 @@ export async function POST(request: NextRequest) {
       if (isTextLike) {
         textContent = buffer.toString('utf-8');
       } else if (isPdf) {
-        const parsed: any = await (pdfParse as any)(buffer);
+        // ใช้ dynamic require เพื่อหลีกเลี่ยง error ตอนเริ่มต้น
+        const pdf = require('pdf-parse/lib/pdf-parse.js'); 
+        const parsed = await pdf(buffer);
         textContent = parsed?.text || null;
       } else if (isDocx) {
         const result = await mammoth.extractRawText({ buffer });
