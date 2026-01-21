@@ -21,7 +21,8 @@ import {
   IoMicOutline,
   IoCameraOutline,
   IoImageOutline,
-  IoFolderOutline
+  IoFolderOutline,
+  IoEyeOutline
 } from 'react-icons/io5'
 
 // --- Component ย่อยสำหรับรายการเมนู Popup ---
@@ -344,6 +345,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
     pathParts.pop();
     const newPath = '/' + pathParts.join('/') + (pathParts.length > 0 ? '/' : '');
     loadMinioFiles(newPath, false);
+  };
+
+  // --- ฟังก์ชันดูไฟล์ในแท็บใหม่ ---
+  const handleViewFile = (file: any, e: React.MouseEvent) => {
+    e.stopPropagation(); // ป้องกันไม่ให้ trigger การเลือกไฟล์
+    const { path, name } = { path: file.path || currentPath, name: file.name };
+    const viewUrl = `/api/files/view?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`;
+    window.open(viewUrl, '_blank');
   };
 
   // --- กรองไฟล์ตามการค้นหา ---
@@ -736,6 +745,13 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                       </div>
                       {file.type === 'file' && (
                         <div className="flex items-center space-x-2">
+                          <button
+                            onClick={(e) => handleViewFile(file, e)}
+                            className="p-1.5 rounded-lg hover:bg-orange-100 text-orange-500 transition-colors"
+                            title="ดูไฟล์"
+                          >
+                            <IoEyeOutline size={20} />
+                          </button>
                           {selectedMinioFiles.has(buildMinioKey(file)) ? (
                             <div className="w-5 h-5 bg-orange-500 rounded flex items-center justify-center">
                               <span className="text-white text-xs">✓</span>

@@ -30,8 +30,32 @@ CREATE INDEX IF NOT EXISTS idx_users_approved ON users(approved);
 CREATE INDEX IF NOT EXISTS idx_users_disabled ON users(disabled);
 
 -- ค่าเริ่มต้น: ผู้ใช้ทั้งหมดถือว่าไม่ถูกอนุมัติและไม่ถูกปิดใช้งาน
-UPDATE users SET approved = COALESCE(approved, FALSE);
-UPDATE users SET disabled = COALESCE(disabled, FALSE);
+UPDATE users SET approved = COALESCE(approved, TRUE);
+UPDATE users SET disabled = COALESCE(disabled, TRUE);
 
 -- แสดงผลลัพธ์ตรวจสอบ
 SELECT id, name, email, role, approved, disabled, created_at, last_login FROM users ORDER BY id;
+
+-- อนุมัติผู้ใช้โดยใช้ ID
+UPDATE users SET approved = TRUE WHERE id = 1;
+
+-- อนุมัติผู้ใช้โดยใช้ email
+UPDATE users SET approved = TRUE WHERE email = 'user@example.com';
+
+-- อนุมัติหลายคนพร้อมกัน
+UPDATE users SET approved = TRUE WHERE id IN (1, 2, 3);
+
+-- ยกเลิกการอนุมัติผู้ใช้
+UPDATE users SET approved = FALSE WHERE id = 1;
+
+-- ดูผู้ใช้ที่รออนุมัติ
+SELECT id, name, email, role, created_at FROM users WHERE approved = FALSE;
+
+-- ดูผู้ใช้ที่อนุมัติแล้ว
+SELECT id, name, email, role, approved, created_at FROM users WHERE approved = TRUE;
+
+-- ดูสถานะทั้งหมด
+SELECT id, name, email, role, approved, disabled, created_at FROM users ORDER BY created_at DESC;
+
+--อนุมัติและเปิดใช้งานผู้ใช้
+UPDATE users SET approved = TRUE, disabled = FALSE WHERE id = 1;

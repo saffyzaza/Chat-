@@ -244,7 +244,7 @@ Return as JSON:
   ],
   "researchers": [
     {
-      "role": "หัวหน้าโครงการ|ผู้ร่วมวิจัย|อื่นๆ",
+      "role": "เอาแค่ชื่อหัวหน้าโครงการ",
       "titleThai": "title",
       "firstNameThai": "EXTRACT",
       "lastNameThai": "EXTRACT",
