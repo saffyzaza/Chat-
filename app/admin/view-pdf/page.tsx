@@ -1,10 +1,11 @@
 'use client';
 
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react'; // เพิ่ม Suspense
 import { IoArrowBackOutline, IoDownloadOutline } from 'react-icons/io5';
 
-export default function ViewPdfPage() {
+// 1. แยกเนื้อหาเดิมมาไว้ในคอมโพเนนต์ย่อย
+function PdfViewerContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -121,5 +122,18 @@ export default function ViewPdfPage() {
         )}
       </div>
     </div>
+  );
+}
+
+// 2. Export หน้าหลักที่ครอบด้วย Suspense
+export default function ViewPdfPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen flex items-center justify-center bg-gray-100">
+        <p>กำลังเตรียมการเปิดไฟล์...</p>
+      </div>
+    }>
+      <PdfViewerContent />
+    </Suspense>
   );
 }
