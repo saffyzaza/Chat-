@@ -1,5 +1,9 @@
 # Stage 1: Builder
 FROM node:24-alpine AS builder
+
+# ติดตั้ง build dependencies สำหรับ native modules
+RUN apk add --no-cache python3 make g++ cairo-dev pango-dev pixman-dev jpeg-dev giflib-dev librsvg-dev
+
 WORKDIR /app
 
 # ติดตั้ง dependencies สำหรับการ Build เท่านั้น
@@ -21,6 +25,10 @@ RUN npm run build
 
 # Stage 2: Runner (Image จะเล็กลงมาก)
 FROM node:24-alpine AS runner
+
+# ติดตั้ง Runtime libraries ที่จำเป็นสำหรับ pdf-parse/canvas
+RUN apk add --no-cache cairo pango pixman jpeg giflib librsvg
+
 WORKDIR /app
 
 ENV NODE_ENV=production
