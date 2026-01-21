@@ -54,21 +54,32 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
     const lines = content.split('\n');
     const docChildren: any[] = [];
 
-    const parseTextWithBold = (text: string): TextRun[] => {
-      const parts = text.split(/(\*\*.*?\*\*)/g);
+    const parseTextWithBold = (text: string, options: { size?: number, color?: string, forceBold?: boolean } = {}): TextRun[] => {
+      const { size = DOC_CONFIG.sizeMain, color, forceBold = false } = options;
+      
+      // Clean up markdown and HTML tags that shouldn't be in Word
+      const cleanedText = text
+        .replace(/<br\s*\/?>/gi, ' ') // Replace <br> with space
+        .replace(/\\n/g, ' ')         // Replace literal \n with space
+        .replace(/`/g, '')            // Remove code backticks
+        .replace(/#{1,6}\s/g, '')     // Remove any remaining heading hashes
+        .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'); // Convert markdown links to plain text [text](url) -> text
+
+      const parts = cleanedText.split(/(\*\*.*?\*\*)/g);
       return parts.map((part) => {
-        const isBold = part.startsWith('**') && part.endsWith('**');
+        const isBoldMarker = part.startsWith('**') && part.endsWith('**');
         return new TextRun({
-          text: isBold ? part.slice(2, -2) : part,
-          bold: isBold,
+          text: isBoldMarker ? part.slice(2, -2) : part,
+          bold: forceBold || isBoldMarker,
           font: DOC_CONFIG.font,
-          size: DOC_CONFIG.sizeMain,
+          size: size,
+          color: color,
         });
       });
     };
 
     const createStyledParagraph = (text: string, options: any = {}) => {
-      const { isList = false, listIdx = 1, ...props } = options;
+      const { isList = false, listIdx = 1, bold = false, color, size, ...props } = options;
       const runs: TextRun[] = [];
 
       if (isList) {
@@ -82,7 +93,7 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
         );
       }
 
-      runs.push(...parseTextWithBold(text));
+      runs.push(...parseTextWithBold(text, { forceBold: bold, color, size }));
 
       return new Paragraph({
         children: runs,
@@ -96,7 +107,9 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
       const line = lines[i];
       const trimmed = line.trim();
 
-      if (trimmed === '---page-break---' || trimmed === '[PAGE_BREAK]') {
+      // Handle Page Breaks (Case-insensitive catch-all, handles backslashes like [PAGE\_BREAK])
+      const isPageBreak = /\[PAGE[\\_]*BREAK\]/i.test(trimmed) || trimmed === '---page-break---';
+      if (isPageBreak) {
         docChildren.push(new Paragraph({ children: [new PageBreak()] }));
         i++;
         continue;
@@ -144,25 +157,21 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
                       width: { size: cellWidth, type: WidthType.PERCENTAGE },
                       children: [
                         new Paragraph({
-                          children: [
-                            new TextRun({
-                              text: cell.trim(),
-                              bold: isHeader,
-                              color: isHeader ? 'FFFFFF' : '1E3A8A',
-                              font: DOC_CONFIG.font,
-                              size: isHeader ? 28 : 24,
-                            }),
-                          ],
+                          children: parseTextWithBold(cell.trim(), {
+                            size: isHeader ? 28 : 24,
+                            color: '000000',
+                            forceBold: isHeader
+                          }),
                           alignment: isHeader ? AlignmentType.CENTER : AlignmentType.LEFT,
                           spacing: { line: 240 },
                         }),
                       ],
-                      shading: isHeader ? { fill: '1A5F7A' } : { fill: 'F0F9FF' },
+                      shading: { fill: 'FFFFFF' },
                       borders: {
-                        top: { style: BorderStyle.SINGLE, size: 4, color: isHeader ? '1A5F7A' : 'BFDBFE' },
-                        bottom: { style: BorderStyle.SINGLE, size: 4, color: isHeader ? '1A5F7A' : 'BFDBFE' },
-                        left: { style: BorderStyle.SINGLE, size: 4, color: isHeader ? '1A5F7A' : 'BFDBFE' },
-                        right: { style: BorderStyle.SINGLE, size: 4, color: isHeader ? '1A5F7A' : 'BFDBFE' },
+                        top: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+                        bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+                        left: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
+                        right: { style: BorderStyle.SINGLE, size: 4, color: '000000' },
                       },
                       margins: { top: 120, bottom: 120, left: 120, right: 120 },
                       verticalAlign: VerticalAlign.CENTER,
@@ -225,6 +234,7 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
             spacing: { before: 400, after: 200 },
             alignment: AlignmentType.CENTER,
             bold: true,
+            size: DOC_CONFIG.sizeTitle,
           })
         );
       } else if (trimmed.startsWith('## ')) {
@@ -235,6 +245,7 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
             spacing: { before: 300, after: 150 },
             bold: true,
             color: '1A5F7A',
+            size: DOC_CONFIG.sizeHeader,
           })
         );
       } else if (trimmed.startsWith('### ')) {
@@ -244,6 +255,7 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
             heading: HeadingLevel.HEADING_3,
             spacing: { before: 200, after: 100 },
             bold: true,
+            size: DOC_CONFIG.sizeMain + 4, // Slightly larger than main
             indent: { left: 360 },
           })
         );
@@ -387,9 +399,56 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
         {((content || '')
           .split(/(?:\(เนื้อหาสิ้นสุด\)|เนื้อหาจบลงตรงนี้|ขออภัยครับ)/)[0]
           .trim())
-          .split('[PAGE_BREAK]')
+          .split(/\s*\[PAGE[\\_]*BREAK\]\s*|---page-break---/i)
           .map((pageContent, index, array) => {
-            const trimmedContent = pageContent.trim().replace(/ {2,}/g, ' ');
+            // Pre-process markdown to fix common table rendering issues
+            let processedContent = pageContent
+              .trim()
+              // 1. Ensure blank line before tables (some parsers need it)
+              .replace(/([^\n])\n\|/g, '$1\n\n|')
+              // 2. Fix literal <br> tags anywhere - convert to spaces or actual newlines depending on context
+              // Inside tables, <br> breaks standard markdown. Let's replace them with a space for integrity.
+              .replace(/<br\s*\/?>/gi, ' ');
+
+            const lines = processedContent.split('\n');
+            const finalLines = [];
+            let inTable = false;
+
+            for (let i = 0; i < lines.length; i++) {
+              let line = lines[i];
+              let trimmed = line.trim();
+
+              if (trimmed.startsWith('|')) {
+                inTable = true;
+                
+                // 3. Normalize table separator lines (extremely long dash lines)
+                // If this is a separator line (contains only |, -, :, and spaces)
+                if (/^[|:\-\s]+$/.test(trimmed)) {
+                  line = line.replace(/-{4,}/g, '---');
+                }
+                
+                // 4. Remove empty lines that might be breaking the table contiguous block
+                finalLines.push(line);
+                
+                // Peek ahead to skip blank lines within a table
+                while (i + 1 < lines.length && lines[i+1].trim() === '') {
+                  // Check if there's more table after this blank line
+                  let foundMoreTable = false;
+                  for (let j = i + 2; j < lines.length; j++) {
+                    const peek = lines[j].trim();
+                    if (peek.startsWith('|')) { foundMoreTable = true; break; }
+                    if (peek !== '') break;
+                  }
+                  if (foundMoreTable) i++; else break;
+                }
+              } else {
+                inTable = false;
+                // For regular text, collapse multiple spaces for Thai readability
+                finalLines.push(line.replace(/ {2,}/g, ' '));
+              }
+            }
+
+            const trimmedContent = finalLines.join('\n');
             if (!trimmedContent && index > 0) return null;
 
             return (
@@ -467,8 +526,8 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
                       },
                       table: { 
                         component: ({ children, ...props }: any) => (
-                          <div className="my-14 w-full overflow-hidden wrap-break-word">
-                            <table className="w-full border-collapse border-2 border-[#1A5F7A] shadow-xl rounded-lg table-fixed" {...props}>
+                          <div className="my-14 w-full overflow-x-auto wrap-break-word">
+                            <table className="w-full border-collapse border-2 border-gray-900 shadow-xl rounded-lg table-auto" {...props}>
                               {children}
                             </table>
                           </div>
@@ -477,13 +536,13 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
                         th: {
                           component: 'th',
                           props: {
-                            className: 'bg-[#1A5F7A] wrap-break-word border border-white/20 px-2 py-2 text-sm font-bold uppercase text-white tracking-wider md:text-base align-middle whitespace-normal text-center',
+                            className: 'bg-white wrap-break-word border border-gray-900 px-4 py-3 text-sm font-bold uppercase text-gray-900 tracking-wider md:text-base align-middle whitespace-normal text-center',
                           },
                         },
                         td: {
                           component: 'td',
                           props: {
-                            className: 'bg-[#F0F9FF] wrap-break-word border border-[#BFDBFE] px-2 py-2 text-sm font-medium leading-relaxed text-[#1E3A8A] md:text-base align-middle whitespace-normal',
+                            className: 'bg-white wrap-break-word border border-gray-900 px-4 py-3 text-sm font-medium leading-relaxed text-gray-800 md:text-base align-middle whitespace-normal',
                           },
                         },
                         strong: {
