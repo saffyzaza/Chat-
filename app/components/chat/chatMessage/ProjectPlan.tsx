@@ -31,7 +31,7 @@ interface ProjectPlanProps {
 
 // Configuration constants for document styling (Thai Government Standard)
 const DOC_CONFIG = {
-  font: "TH Sarabun New", // หรือ TH Sarabun PSK
+  font: "TH Sarabun PSK", // หรือ TH Sarabun PSK
   sizeMain: 32, // 16pt
   sizeHeader: 40, // 20pt
   sizeTitle: 56, // 28pt

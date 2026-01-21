@@ -5,7 +5,11 @@ services:
 
   # env.local Database
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_GOOGLE_API_KEY: ${NEXT_PUBLIC_GOOGLE_API_KEY}
+        NEXT_PUBLIC_RAG_API_KEY: ${NEXT_PUBLIC_RAG_API_KEY}
     container_name: chat_aio_app
     depends_on:
       postgres:
@@ -13,8 +17,6 @@ services:
       minio:
         condition: service_healthy
     environment:
-      NEXT_PUBLIC_GOOGLE_API_KEY: AIzaSyC6Vug47p79HbOtK_setrPYKxUizk3EfA8
-      NEXT_PUBLIC_RAG_API_KEY: https://api.iaaaiksu.com
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: chat-aio
@@ -28,9 +30,9 @@ services:
       MINIO_BUCKET: uploads
     ports:
       - "3000:3000"
+    env_file:
+      - .env
 
-      
-      
 
   postgres:
     image: postgres:16

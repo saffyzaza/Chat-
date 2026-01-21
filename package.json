@@ -18,11 +18,8 @@
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.4",
-<<<<<<< HEAD
-    "markdown-to-jsx": "^9.5.7",
-=======
     "mammoth": "^1.11.0",
->>>>>>> 842f3ce8ecf3ab7d90974bbc72957aa26f7bd601
+    "markdown-to-jsx": "^9.5.7",
     "mime-types": "^3.0.2",
     "minio": "^8.0.6",
     "next": "16.0.3",
@@ -39,6 +36,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/mime-types": "^3.0.1",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "baseline-browser-mapping": "^2.9.11",
