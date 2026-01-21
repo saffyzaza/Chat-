@@ -104,7 +104,7 @@ MANDATORY: Extract EVERYTHING visible in the document. Return ONLY valid JSON.`;
       ? `File: ${params.fileName}\nContent:\n${params.textContent.substring(0, 20000)}`
       : `File: ${params.fileName}\nNo readable text could be extracted. If you can infer the document type from the filename, provide basic metadata. Filename: ${params.fileName}`;
 
-    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
     const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent(`${basePrompt}\n\n${contentForModel}`);
     const text = result.response?.text?.() || '';
