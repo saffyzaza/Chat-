@@ -1,6 +1,7 @@
 "use client";
 
 import path from "path";
+import { useRouter } from "next/navigation";
 import { useState, useRef } from "react";
 import {
   IoAddOutline,
@@ -28,6 +29,7 @@ export function FileUploader({
   selectedFolder = "/",
   externalApiUrl,
 }: FileUploaderProps) {
+  const router = useRouter();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -160,6 +162,8 @@ export function FileUploader({
           apaData: apaDataToShow
         });
       }
+
+      router.refresh();
     } catch (error) {
       console.error("Error uploading file:", error);
 

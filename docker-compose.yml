@@ -4,34 +4,34 @@ services:
 
 
   # env.local Database
-  app:
-    build:
-      context: .
-      args:
-        NEXT_PUBLIC_GOOGLE_API_KEY: ${NEXT_PUBLIC_GOOGLE_API_KEY}
-        NEXT_PUBLIC_RAG_API_KEY: ${NEXT_PUBLIC_RAG_API_KEY}
-    container_name: chat_aio_app
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: chat-aio
-      DB_USER: postgres
-      DB_PASSWORD: 1234
-      MINIO_ENDPOINT: minio
-      MINIO_PORT: 9000
-      MINIO_USE_SSL: false
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: uploads
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env
+  # app:
+  #   build:
+  #     context: .
+  #     args:
+  #       NEXT_PUBLIC_GOOGLE_API_KEY: ${NEXT_PUBLIC_GOOGLE_API_KEY}
+  #       NEXT_PUBLIC_RAG_API_KEY: ${NEXT_PUBLIC_RAG_API_KEY}
+  #   container_name: chat_aio_app
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #   environment:
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_NAME: chat-aio
+  #     DB_USER: postgres
+  #     DB_PASSWORD: 1234
+  #     MINIO_ENDPOINT: minio
+  #     MINIO_PORT: 9000
+  #     MINIO_USE_SSL: false
+  #     MINIO_ACCESS_KEY: minioadmin
+  #     MINIO_SECRET_KEY: minioadmin
+  #     MINIO_BUCKET: uploads
+  #   ports:
+  #     - "3000:3000"
+  #   env_file:
+  #     - .env
 
 
   postgres:
