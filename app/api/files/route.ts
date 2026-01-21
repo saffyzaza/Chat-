@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Polyfill สำหรับ PDF parsing (pdf-parse/pdfjs-dist) ใน Node.js environment
-// ต้องประกาศก่อนการเรียกใช้ module ที่เกี่ยวข้อง
+// ป้องกัน Error: ReferenceError: DOMMatrix is not defined
 if (typeof global !== 'undefined') {
-  if (!(global as any).DOMMatrix) (global as any).DOMMatrix = class DOMMatrix {};
-  if (!(global as any).ImageData) (global as any).ImageData = class ImageData {};
-  if (!(global as any).Path2D) (global as any).Path2D = class Path2D {};
+  const g = global as any;
+  if (!g.DOMMatrix) g.DOMMatrix = class DOMMatrix {};
+  if (!g.ImageData) g.ImageData = class ImageData {};
+  if (!g.Path2D) g.Path2D = class Path2D {};
+  if (!g.window) g.window = g;
+  if (!g.self) g.self = g;
 }
 
 import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';import { Pool } from 'pg';
@@ -305,10 +308,16 @@ export async function POST(request: NextRequest) {
       if (isTextLike) {
         textContent = buffer.toString('utf-8');
       } else if (isPdf) {
-        // ใช้ dynamic require และเรียกใช้ default export
-        const pdf = require('pdf-parse'); 
-        const parsed = await pdf(buffer);
-        textContent = parsed?.text || null;
+        // ใช้ dynamic require และตรวจสอบรูปแบบ export (function vs default)
+        const pdfMod = require('pdf-parse'); 
+        const pdf = typeof pdfMod === 'function' ? pdfMod : (pdfMod.default || pdfMod);
+        
+        if (typeof pdf === 'function') {
+          const parsed = await pdf(buffer);
+          textContent = parsed?.text || null;
+        } else {
+          console.error('pdf-parse is not a function after loading');
+        }
       } else if (isDocx) {
         const result = await mammoth.extractRawText({ buffer });
         textContent = result?.value || null;
