@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';
-import { Pool } from 'pg';
+
+// Polyfill สำหรับ PDF parsing (pdf-parse/pdfjs-dist) ใน Node.js environment
+// ต้องประกาศก่อนการเรียกใช้ module ที่เกี่ยวข้อง
+if (typeof global !== 'undefined') {
+  if (!(global as any).DOMMatrix) (global as any).DOMMatrix = class DOMMatrix {};
+  if (!(global as any).ImageData) (global as any).ImageData = class ImageData {};
+  if (!(global as any).Path2D) (global as any).Path2D = class Path2D {};
+}
+
+import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';import { Pool } from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import mammoth from 'mammoth';
 
@@ -297,8 +305,8 @@ export async function POST(request: NextRequest) {
       if (isTextLike) {
         textContent = buffer.toString('utf-8');
       } else if (isPdf) {
-        // ใช้ dynamic require เพื่อหลีกเลี่ยง error ตอนเริ่มต้น
-        const pdf = require('pdf-parse/lib/pdf-parse.js'); 
+        // ใช้ dynamic require และเรียกใช้ default export
+        const pdf = require('pdf-parse'); 
         const parsed = await pdf(buffer);
         textContent = parsed?.text || null;
       } else if (isDocx) {
