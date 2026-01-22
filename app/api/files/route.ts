@@ -1,18 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-// Polyfill สำหรับ PDF parsing (pdf-parse/pdfjs-dist) ใน Node.js environment
-// ป้องกัน Error: ReferenceError: DOMMatrix is not defined
-if (typeof global !== 'undefined') {
-  const g = global as any;
-  if (!g.DOMMatrix) g.DOMMatrix = class DOMMatrix {};
-  if (!g.ImageData) g.ImageData = class ImageData {};
-  if (!g.Path2D) g.Path2D = class Path2D {};
-  if (!g.window) g.window = g;
-  if (!g.self) g.self = g;
-}
-
-import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';import { Pool } from 'pg';
+import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';
+import { Pool } from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 
 // รองรับทั้ง local filesystem (สำหรับ external API) และ MinIO
@@ -115,7 +105,7 @@ MANDATORY: Extract EVERYTHING visible in the document. Return ONLY valid JSON.`;
       ? `File: ${params.fileName}\nContent:\n${params.textContent.substring(0, 20000)}`
       : `File: ${params.fileName}\nNo readable text could be extracted. If you can infer the document type from the filename, provide basic metadata. Filename: ${params.fileName}`;
 
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
     const model = genAI.getGenerativeModel({ model: modelName });
     const result = await model.generateContent(`${basePrompt}\n\n${contentForModel}`);
     const text = result.response?.text?.() || '';
@@ -308,16 +298,8 @@ export async function POST(request: NextRequest) {
       if (isTextLike) {
         textContent = buffer.toString('utf-8');
       } else if (isPdf) {
-        // ใช้ dynamic require และตรวจสอบรูปแบบ export (function vs default)
-        const pdfMod = require('pdf-parse'); 
-        const pdf = typeof pdfMod === 'function' ? pdfMod : (pdfMod.default || pdfMod);
-        
-        if (typeof pdf === 'function') {
-          const parsed = await pdf(buffer);
-          textContent = parsed?.text || null;
-        } else {
-          console.error('pdf-parse is not a function after loading');
-        }
+        const parsed: any = await (pdfParse as any)(buffer);
+        textContent = parsed?.text || null;
       } else if (isDocx) {
         const result = await mammoth.extractRawText({ buffer });
         textContent = result?.value || null;

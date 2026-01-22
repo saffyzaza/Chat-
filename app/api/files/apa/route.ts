@@ -2,18 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
 import { minioClient, MINIO_BUCKET, buildObjectName } from '@/lib/minio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import * as pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
-
-// Polyfill สำหรับ PDF parsing (pdf-parse/pdfjs-dist) ใน Node.js environment
-// ป้องกัน Error: ReferenceError: DOMMatrix is not defined
-if (typeof global !== 'undefined') {
-  const g = global as any;
-  if (!g.DOMMatrix) g.DOMMatrix = class DOMMatrix {};
-  if (!g.ImageData) g.ImageData = class ImageData {};
-  if (!g.Path2D) g.Path2D = class Path2D {};
-  if (!g.window) g.window = g;
-  if (!g.self) g.self = g;
-}
 
 // PostgreSQL connection pool (consistent with other routes)
 const pool = new Pool({
@@ -120,22 +110,13 @@ export async function POST(request: NextRequest) {
     try {
       if (isPdf) {
         try {
-          // ใช้ dynamic require และตรวจสอบรูปแบบ export (function vs default)
-          const pdfMod = require('pdf-parse'); 
-          const pdf = typeof pdfMod === 'function' ? pdfMod : (pdfMod.default || pdfMod);
-          
-          if (typeof pdf === 'function') {
-            const parsed = await pdf(buffer);
-            textContent = parsed?.text || null;
-            if (textContent && textContent.trim().length > 0) {
-              extractionMethod = 'pdf-parse';
-            }
-          } else {
-            console.error('[APA POST] pdf-parse is not a function after loading');
+          const parsed: any = await (pdfParse as any)(buffer);
+          textContent = parsed?.text || null;
+          if (textContent && textContent.trim().length > 0) {
+            extractionMethod = 'pdf-parse';
           }
         } catch (pdfErr) {
           // pdf-parse failed or empty
-          console.error('[APA POST] pdf-parse error:', pdfErr);
           textContent = null;
         }
       } else if (isDocx) {

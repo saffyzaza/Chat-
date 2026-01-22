@@ -26,9 +26,9 @@ export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 
       }`}
     >
       {tableData.title && (
-        <div className="px-5 py-4 border-b border-gray-200 bg-gray-50">
+        <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/50">
           <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <div className="w-1 h-5 bg-gray-800 rounded-full"></div>
+            <div className="w-1 h-5 bg-purple-600 rounded-full"></div>
             {tableData.title}
           </h3>
         </div>
@@ -38,12 +38,12 @@ export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 
           className={`ai-table ${sizeClass} w-full table-auto min-w-[640px] divide-y divide-gray-200`}
           style={{ fontSize: '0.85rem' }}
         >
-          <thead className="bg-gray-100">
+          <thead className="bg-[#fcfaff]">
             <tr>
               {headers.map((header, index) => (
                 <th
                   key={index}
-                  className="px-6 py-4 text-left font-bold text-gray-700 border-b border-gray-300 uppercase tracking-wider"
+                  className="px-6 py-4 text-left font-bold text-gray-700 border-b-2 border-purple-100 uppercase tracking-wider"
                 >
                   {header}
                 </th>

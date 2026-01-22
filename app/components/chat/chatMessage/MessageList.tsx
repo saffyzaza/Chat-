@@ -20,6 +20,7 @@ export interface Message {
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
+  loadingStatus?: string;
   onRegenerate?: (messageIndex: number) => void;
   onCopy?: (content: string) => void;
   onEdit?: (messageIndex: number, content: string) => void;
@@ -28,7 +29,7 @@ interface MessageListProps {
 }
 
 // 2. Component สำหรับแสดงผลข้อความ
-export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit, onTypingComplete, onViewPlan }: MessageListProps) => {
+export const MessageList = ({ messages, isLoading, loadingStatus, onRegenerate, onCopy, onEdit, onTypingComplete, onViewPlan }: MessageListProps) => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -266,9 +267,17 @@ export const MessageList = ({ messages, isLoading, onRegenerate, onCopy, onEdit,
 
       {isLoading && (
         <div className="flex justify-start">
-          <div className="flex items-center space-x-2 bg-white border border-gray-100 shadow-sm text-gray-800 p-3 rounded-xl">
-            <IoHardwareChipOutline className="animate-spin text-orange-500" size={20} />
-            <span className="text-sm">กำลังคิด...</span>
+          <div className="flex items-center space-x-3 bg-white border border-gray-100 shadow-sm text-gray-800 p-3 px-4 rounded-xl">
+            <div className="relative flex h-5 w-5">
+              <IoHardwareChipOutline className="animate-spin text-orange-500 absolute inset-0" size={20} />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-20"></span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-bold text-gray-700 animate-pulse">
+                {loadingStatus || 'กำลังประมวลผล...'}
+              </span>
+              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">AI Thinking Engine</span>
+            </div>
           </div>
         </div>
       )}
