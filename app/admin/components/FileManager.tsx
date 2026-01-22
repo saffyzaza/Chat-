@@ -556,6 +556,8 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
         </div>
       )}
 
+      
+
       {/* Modal ดูไฟล์ */}
       {isViewModalOpen && viewingFile && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -564,6 +566,8 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
               <h3 className="text-lg font-medium flex items-center gap-2 text-gray-700">
                 <IoDocumentOutline size={24} />
                 {viewingFile.name}
+                
+                
               </h3>
               <button
                 onClick={() => {
@@ -610,6 +614,7 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
                         title={viewingFile.name}
                       />
                     </div>
+                    
                   ) : isImage(viewingFile.name) ? (
                     // แสดงรูปภาพ
                     <div className="p-6 flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 min-h-[60vh]">

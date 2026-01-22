@@ -17,7 +17,13 @@ interface MarkdownProps {
 const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }: MarkdownProps) => {
   // ลบแท็ก wrapper ที่ไม่รองรับ เช่น <markdown> หรือ <md> เพื่อหลีกเลี่ยง React error
   const sanitized = typeof children === 'string'
-    ? children.replace(/<\/?markdown[^>]*>/gi, '').replace(/<\/?md[^>]*>/gi, '')
+    ? children
+        .replace(/<\/?markdown[^>]*>/gi, '')
+        .replace(/<\/?md[^>]*>/gi, '')
+        .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
+          const cleanUrl = url.replace(/\s+/g, '');
+          return `[${text}](${cleanUrl})`;
+        })
     : children;
 
   return (
@@ -84,7 +90,7 @@ const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }
             },
             a: {
               component: 'a',
-              props: { className: 'text-blue-500 hover:underline', target: '_blank', rel: 'noreferrer' }
+              props: { className: 'text-blue-500 hover:underline text-[8px] break-all block mt-0.5', target: '_blank', rel: 'noreferrer' }
             },
             h1: {
               component: 'h1',

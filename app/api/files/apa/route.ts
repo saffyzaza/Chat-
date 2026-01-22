@@ -2,8 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pool } from 'pg';
 import { minioClient, MINIO_BUCKET, buildObjectName } from '@/lib/minio';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import * as pdfParse from 'pdf-parse';
-import mammoth from 'mammoth';
+
+// Polyfills for pdf-parse in Node.js environment
+if (typeof (global as any).DOMMatrix === 'undefined') {
+  (global as any).DOMMatrix = class {};
+}
+if (typeof (global as any).ImageData === 'undefined') {
+  (global as any).ImageData = class {};
+}
+if (typeof (global as any).Path2D === 'undefined') {
+  (global as any).Path2D = class {};
+}
+
+// ย้าย imports ที่อาจมีปัญหาในบาง environment ไปโหลดแบบ dynamic ภายใน handler
+// import * as pdfParse from 'pdf-parse';
+// import mammoth from 'mammoth';
 
 // PostgreSQL connection pool (consistent with other routes)
 const pool = new Pool({
@@ -110,16 +123,21 @@ export async function POST(request: NextRequest) {
     try {
       if (isPdf) {
         try {
-          const parsed: any = await (pdfParse as any)(buffer);
+          // Dynamic load to avoid DOMMatrix error in Node environment
+          const pdfParse = require('pdf-parse');
+          const parsed: any = await pdfParse(buffer);
           textContent = parsed?.text || null;
           if (textContent && textContent.trim().length > 0) {
             extractionMethod = 'pdf-parse';
           }
         } catch (pdfErr) {
           // pdf-parse failed or empty
+          console.error('[APA POST] pdf-parse error:', pdfErr);
           textContent = null;
         }
       } else if (isDocx) {
+        // Dynamic load mammoth
+        const mammoth = require('mammoth');
         const result = await mammoth.extractRawText({ buffer });
         textContent = result?.value || null;
         if (textContent) extractionMethod = 'mammoth';
@@ -210,7 +228,7 @@ export async function POST(request: NextRequest) {
 2. EXTRACT EVERY SINGLE PIECE OF INFORMATION
 3. Fill in ALL available fields - do NOT skip any data found in the document
 4. For references: list EVERY reference with complete details
-5. For researchers: list EVERY person mentioned with their role and affiliation
+5. For researchers: extract ONLY ONE person - the principal investigator/project leader (หัวหน้าโครงการ/หัวหน้าวิจัย) ONLY. Ignore all co-researchers and team members
 6. For keywords: extract EVERY keyword mentioned
 
 Return as JSON:
@@ -244,7 +262,7 @@ Return as JSON:
   ],
   "researchers": [
     {
-      "role": "เอาแค่ชื่อหัวหน้าโครงการ",
+      "role": "หัวหน้าโครงการ",
       "titleThai": "title",
       "firstNameThai": "EXTRACT",
       "lastNameThai": "EXTRACT",
@@ -263,7 +281,7 @@ Return as JSON:
   "additionalInfo": "capture any other important data"
 }
 
-MANDATORY: Extract EVERYTHING visible in the document. Return ONLY valid JSON.`;
+MANDATORY: Return researchers array with ONLY ONE object - the principal investigator only. DO NOT include multiple researchers. Return ONLY valid JSON.`;
       const basePrompt = `You are an expert researcher analyzing a document. Your task is to EXTRACT ALL INFORMATION COMPLETELY AND ACCURATELY. ${schemaDescription}`;
       const contentForModel = textContent && textContent.trim().length > 0
         ? `File: ${fileName}\nContent:\n${textContent.substring(0, 20000)}`

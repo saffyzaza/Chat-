@@ -20,6 +20,7 @@ import {
   Footer,
   TableLayoutType,
   PageNumber,
+  ExternalHyperlink,
 } from 'docx';
 import { saveAs } from 'file-saver';
 import { FiDownload, FiX } from 'react-icons/fi';
@@ -54,36 +55,88 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
     const lines = content.split('\n');
     const docChildren: any[] = [];
 
-    const parseTextWithBold = (text: string, options: { size?: number, color?: string, forceBold?: boolean } = {}): TextRun[] => {
+    const parseTextToWordElements = (text: string, options: { size?: number, color?: string, forceBold?: boolean } = {}): any[] => {
       const { size = DOC_CONFIG.sizeMain, color, forceBold = false } = options;
       
-      // Clean up markdown and HTML tags that shouldn't be in Word
+      // 1. Clean up technical artifacts and fix broken markdown links across lines
       const cleanedText = text
-        .replace(/<br\s*\/?>/gi, ' ') // Replace <br> with space
-        .replace(/\\n/g, ' ')         // Replace literal \n with space
-        .replace(/`/g, '')            // Remove code backticks
-        .replace(/#{1,6}\s/g, '')     // Remove any remaining heading hashes
-        .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'); // Convert markdown links to plain text [text](url) -> text
+        .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, t, u) => {
+          return `[${t}](${u.replace(/\s+/g, '')})`;
+        })
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/\\n/g, ' ')
+        .replace(/`/g, '')
+        .replace(/#{1,6}\s/g, '');
 
-      const parts = cleanedText.split(/(\*\*.*?\*\*)/g);
-      return parts.map((part) => {
-        const isBoldMarker = part.startsWith('**') && part.endsWith('**');
-        return new TextRun({
-          text: isBoldMarker ? part.slice(2, -2) : part,
-          bold: forceBold || isBoldMarker,
+      // 2. Multi-stage parsing for Bold and Links
+      // We'll use a placeholder technique to handle both without complex regex collisions
+      const elements: any[] = [];
+      
+      // Pattern: [text](url) OR **bold**
+      const pattern = /(\[([^\]]+)\]\(([^)]+)\))|(\*\*.*?\*\*)/g;
+      
+      let lastIndex = 0;
+      let match;
+
+      while ((match = pattern.exec(cleanedText)) !== null) {
+        // Add plain text before match
+        if (match.index > lastIndex) {
+          elements.push(new TextRun({
+            text: cleanedText.substring(lastIndex, match.index),
+            font: DOC_CONFIG.font,
+            size: size,
+            color: color,
+            bold: forceBold,
+          }));
+        }
+
+        if (match[1]) { // It's a link: [text](url)
+          elements.push(new ExternalHyperlink({
+            children: [
+              new TextRun({
+                text: match[2],
+                font: DOC_CONFIG.font,
+                size: 18, // ปรับเป็น 9pt ตามคำขอ "สัก 5" ให้ตัวเล็กมาก
+                color: '0563C1', // Standard link color
+                underline: {},
+                bold: false, // ลิงก์ยาวๆ ไม่ควรหนา
+              }),
+            ],
+            link: match[3],
+          }));
+        } else if (match[4]) { // It's bold: **bold**
+          elements.push(new TextRun({
+            text: match[4].slice(2, -2),
+            bold: true,
+            font: DOC_CONFIG.font,
+            size: size,
+            color: color,
+          }));
+        }
+
+        lastIndex = pattern.lastIndex;
+      }
+
+      // Add remaining text
+      if (lastIndex < cleanedText.length) {
+        elements.push(new TextRun({
+          text: cleanedText.substring(lastIndex),
           font: DOC_CONFIG.font,
           size: size,
           color: color,
-        });
-      });
+          bold: forceBold,
+        }));
+      }
+
+      return elements.length > 0 ? elements : [new TextRun({ text: cleanedText, font: DOC_CONFIG.font, size, color, bold: forceBold })];
     };
 
     const createStyledParagraph = (text: string, options: any = {}) => {
       const { isList = false, listIdx = 1, bold = false, color, size, ...props } = options;
-      const runs: TextRun[] = [];
+      const children: any[] = [];
 
       if (isList) {
-        runs.push(
+        children.push(
           new TextRun({
             text: `${listIdx}. `,
             bold: true,
@@ -93,10 +146,10 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
         );
       }
 
-      runs.push(...parseTextWithBold(text, { forceBold: bold, color, size }));
+      children.push(...parseTextToWordElements(text, { forceBold: bold, color, size }));
 
       return new Paragraph({
-        children: runs,
+        children,
         ...props,
       });
     };
@@ -157,7 +210,7 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
                       width: { size: cellWidth, type: WidthType.PERCENTAGE },
                       children: [
                         new Paragraph({
-                          children: parseTextWithBold(cell.trim(), {
+                          children: parseTextToWordElements(cell.trim(), {
                             size: isHeader ? 28 : 24,
                             color: '000000',
                             forceBold: isHeader
@@ -408,7 +461,12 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
               .replace(/([^\n])\n\|/g, '$1\n\n|')
               // 2. Fix literal <br> tags anywhere - convert to spaces or actual newlines depending on context
               // Inside tables, <br> breaks standard markdown. Let's replace them with a space for integrity.
-              .replace(/<br\s*\/?>/gi, ' ');
+              .replace(/<br\s*\/?>/gi, ' ')
+              // 3. Fix broken markdown links across lines [text](url1\nurl2)
+              .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
+                const cleanUrl = url.replace(/\s+/g, '');
+                return `[${text}](${cleanUrl})`;
+              });
 
             const lines = processedContent.split('\n');
             const finalLines = [];
@@ -555,6 +613,14 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
                           component: 'blockquote',
                           props: {
                             className: 'mb-12 wrap-break-word rounded-r-2xl border-l-4 border-blue-500 bg-gray-50/60 py-6 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
+                          },
+                        },
+                        a: {
+                          component: 'a',
+                          props: {
+                            className: 'text-blue-600 underline hover:text-blue-800 transition-colors cursor-pointer text-[10px] break-all block mt-1',
+                            target: '_blank',
+                            rel: 'noopener noreferrer'
                           },
                         },
                     }

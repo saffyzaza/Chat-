@@ -573,7 +573,7 @@ export const ChatInterface = () => {
         role: 'system',
         parts: [{ 
           text: isSpecialTool 
-            ? currentSystemPrompt + "\n\n(สำคัญ: โปรดเขียนเนื้อหาให้ละเอียดที่สุด หากเนื้อหายังไม่จบให้เขียนต่อไปเรื่อยๆ ในส่วนถัดๆ ไป)" 
+            ? currentSystemPrompt + "\n\n(ประกาศสำคัญ: ระบบนี้กำหนดให้คุณทำงานแบบต่อเนื่อง 5 Chunks โปรดวางแผนเนื้อหาให้ยาวและละเอียดระดับสูงเพื่อให้ครบทั้ง 5 ส่วน ห้ามสรุปจบเร็วเกินไป และห้ามทวนคำสั่งเดิม)" 
             : SYSTEM_PROMPT 
         }]
       };
@@ -585,61 +585,87 @@ export const ChatInterface = () => {
         maxOutputTokens: isSpecialTool ? 2048 : 8192,
       };
 
-      // เพิ่มคำสั่งขยายความหากเป็นเครื่องมือพิเศษ พร้อมเตือนความจำถึงภารกิจหลัก
-      if (isSpecialTool && currentContents.length > 0) {
-        const lastPart = currentContents[currentContents.length - 1].parts[0];
-        if (lastPart.text) {
-          // ส่วนเสริมข้อมูลอ้างอิงจากไฟล์
-          let fileContext = '';
-          if (files && files.length > 0) {
-            fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-            fileContext += '📋 รายละเอียดไฟล์ที่แนบมา (สำหรับการอ้างอิงรูปแบบ Vancouver):\n';
-            
-            // พยายามดึงข้อมูล APA metadata สำหรับแต่ละไฟล์
-            const fileInfos = await Promise.all(files.map(async (file) => {
-              try {
-                // พยายามดึง APA จาก API (ถ้ามีในระบบ)
-                const res = await fetchWithAuth(`/api/files/apa?name=${encodeURIComponent(file.name)}&path=%2F`);
-                const data = await res.json();
-                const apaText = data.success ? data.apa : null;
-                const viewUrl = `http://localhost:3000/api/files/view?path=%2F&name=${encodeURIComponent(file.name)}`;
-                
-                return {
-                  name: file.name,
-                  apa: apaText,
-                  url: viewUrl
-                };
-              } catch {
-                return {
-                  name: file.name,
-                  apa: null,
-                  url: `http://localhost:3000/api/files/view?path=%2F&name=${encodeURIComponent(file.name)}`
-                };
-              }
-            }));
-
-            fileInfos.forEach((info, index) => {
-              fileContext += `${index + 1}. [${info.name}] - ลิงก์: ${info.url}\n`;
-              if (info.apa) {
-                fileContext += `   (APA Metadata: ${info.apa})\n`;
-              }
-            });
-            
-            fileContext += '\n**คำสั่งเพิ่มเติมสำหรับการอ้างอิง:**\n';
-            fileContext += '1. โปรดใช้ข้อมูล APA ด้านบนประกอบการเขียนอ้างอิงรูปแบบ Vancouver Style\n';
-            fileContext += '2. ในส่วนหัวข้อ ## เอกสารอ้างอิง (References) ให้ใช้ชื่อไฟล์เป็นข้อความของลิงก์ และใช้ URL ที่ระบุไว้\n';
-            fileContext += '3. ต้องมีการอ้างอิงในเนื้อหาโดยใช้ตัวเลขในวงเล็บ [1], [2] เสมอ\n';
-            fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-          }
-
-          lastPart.text += `${fileContext}\n\n(ภารกิจปัจจุบัน: ${selectedTool} - โปรดอธิบายให้ละเอียดที่สุด ครบถ้วนทุกมิติ และเขียนให้ยาวที่สุดเท่าที่เป็นไปได้เพื่อให้ได้เอกสารที่สมบูรณ์)`;
-        }
-      }
-
       // --- ส่วนการเรียก API (Unified Flow) ---
       let iteration = 1;
       let hasMoreContent = true;
       const MAX_CHUNKS = isSpecialTool ? 5 : 1; 
+
+      // สร้างส่วนเสริมข้อมูลอ้างอิงจากไฟล์ (เตรียมไว้ใช้ทุก Chunk)
+      let fileContext = '';
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      
+      if (isSpecialTool) {
+        fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        fileContext += '📋 รายละเอียดไฟล์และแหล่งอ้างอิงที่เกี่ยวข้อง (Vancouver Style):\n';
+        
+        let allFileInfos: any[] = [];
+        let isUsingAttachedFiles = false;
+        
+        // 1. ดึงไฟล์ที่แนบมาปัจจุบัน (ลำดับความสำคัญสูงสุด)
+        if (files && files.length > 0) {
+          isUsingAttachedFiles = true;
+          const currentFileInfos = await Promise.all(files.map(async (file) => {
+            try {
+              const cleanName = file.name.replace(/^\/+/, '');
+              const res = await fetchWithAuth(`/api/files/apa?name=${encodeURIComponent(cleanName)}&path=%2F`);
+              const data = await res.json();
+              return { 
+                name: cleanName, 
+                apa: data.success ? data.apa : null, 
+                url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` 
+              };
+            } catch {
+              const cleanName = file.name.replace(/^\/+/, '');
+              return { name: cleanName, apa: null, url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` };
+            }
+          }));
+          allFileInfos = [...currentFileInfos];
+        }
+
+        // 2. ถ้าไม่มีไฟล์แนบ ให้ดึงไฟล์จาก Library (References) มาเป็นบริบทแทน
+        if (!isUsingAttachedFiles) {
+          try {
+            const libRes = await fetchWithAuth('/api/files?path=%2F');
+            if (libRes.ok) {
+              const libData = await libRes.json();
+              const libPdfs = (libData.files || []).filter((f: any) => f.name.endsWith('.pdf'));
+              
+              const libraryInfos = await Promise.all(libPdfs.slice(0, 5).map(async (f: any) => {
+                try {
+                  const cleanName = f.name.replace(/^\/+/, '');
+                  const apaRes = await fetchWithAuth(`/api/files/apa?name=${encodeURIComponent(cleanName)}&path=%2F`);
+                  const data = await apaRes.json();
+                  return { 
+                    name: cleanName, 
+                    apa: data.success ? data.apa : null, 
+                    url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` 
+                  };
+                } catch {
+                  const cleanName = f.name.replace(/^\/+/, '');
+                  return { name: cleanName, apa: null, url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` };
+                }
+              }));
+              allFileInfos = libraryInfos;
+            }
+          } catch (err) {
+            console.error('Error loading library references:', err);
+          }
+        }
+
+        allFileInfos.forEach((info, index) => {
+          fileContext += `${index + 1}. [${info.name}]\n`;
+          fileContext += `   - ลิงก์อ้างอิง: ${info.url}\n`; // ให้มีป้ายกำกับชัดเจน
+          if (info.apa) fileContext += `   - (APA Metadata: ${info.apa})\n`;
+        });
+        
+        fileContext += '\n**คำสั่งบังคับสำหรับการอ้างอิง (Critical Reference Rules):**\n';
+        fileContext += '1. บังคับ: หากมีการอ้างอิงข้อมูลจากไฟล์ ให้ใส่ตัวเลขในวงเล็บ [1], [2] ตามลำดับในเนื้อหา\n';
+        fileContext += '2. บังคับ: หัวข้อ ## เอกสารอ้างอิง (References) ต้องแสดงรายการเป็นลำดับตัวเลข 1., 2.\n';
+        fileContext += '3. บังคับ: ลิงก์ URL จะต้องเขียนขนานไปกับบรรทัด ห้ามมี Newline หรือ Space ภายในรูปแบบ [ข้อความ](URL) โดยเด็ดขาด\n';
+        fileContext += '4. บังคับ: ห้ามทำการตัดคำ (Line wrap) ในส่วนของ URL แม้ URL จะยาวมากก็ตาม เพื่อไม่ให้ลิงก์เสีย\n';
+        fileContext += '5. บังคับ: ห้ามเติมตัวอักษรหรือสรุป URL เอง ให้ใช้ URL ตามที่ระบบระบุไว้ด้านบนแบบเป๊ะๆ 100%\n';
+        fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+      }
 
       while (hasMoreContent && !stopRequestedRef.current && iteration <= MAX_CHUNKS) {
         console.log(`📡 Fetching chunk ${iteration} (isSpecial: ${isSpecialTool})...`);
@@ -655,6 +681,20 @@ export const ChatInterface = () => {
         }
         
         setLoadingStatus(statusText);
+
+        // ปรับปรุงคำสั่งสำหรับ Chunk แรก
+        if (iteration === 1 && isSpecialTool) {
+          const lastMsg = currentContents[currentContents.length - 1];
+          const instructions = `${fileContext}\n\n(ภารกิจ: ${selectedTool} - เริ่มเขียน Chunk ที่ 1 จาก 5 ให้ละเอียด ห้ามพูดทักทาย ห้ามตอบรับ ให้เริ่มเนื้อหาทันที)`;
+          
+          // ค้นหา text part เพื่อเตรียมส่งคำสั่ง (หลีกเลี่ยงการเขียนทับ inlineData/binary)
+          const textPart = lastMsg.parts.find((p: any) => p.text !== undefined);
+          if (textPart) {
+            textPart.text += instructions;
+          } else {
+            lastMsg.parts.push({ text: instructions });
+          }
+        }
         
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`, {
           method: "POST",
@@ -685,11 +725,11 @@ export const ChatInterface = () => {
         if (isSpecialTool) {
           setPlanContent(accumulatedResponse);
           currentContents.push({ role: 'model', parts: [{ text: chunkText }] });
-          // เพิ่ม Prompt เตือนความจำในการเขียน Chunk ถัดไป
+          // เพิ่ม Prompt เตือนความจำในการเขียน Chunk ถัดไป (ย้ำเรื่องอ้างอิงและห้ามพูดนอกเรื่อง)
           currentContents.push({ 
             role: 'user', 
             parts: [{ 
-              text: `เนื้อหายังไม่สมบูรณ์ โปรดเขียนเนื้อหาในส่วนถัดไปของ "${selectedTool}" ให้ละเอียดและต่อเนื่องจากเดิมทันที โดยมุ่งเน้นความลุ่มลึกและข้อมูลที่ครบถ้วน (ห้ามทวนความเดิมและห้ามสรุปจบจนกว่าเนื้อหาจะครบถ้วน)` 
+              text: `${fileContext}\n\nนี่คือ Chunk ที่ ${iteration} จาก 5 ของงาน "${selectedTool}" โปรดเขียนเนื้อหาส่วนถัดไปให้ละเอียดและต่อเนื่องทันที **ห้ามพูดตอบรับ ห้ามทักทาย ห้ามสรุปจบ** และต้องมีการอ้างอิงตัวเลขจากไฟล์ [1], [2] ในเนื้อหาที่เขียนด้วยหากเกี่ยวข้อง` 
             }] 
           });
         }
@@ -1031,7 +1071,7 @@ export const ChatInterface = () => {
                 <button
                   key={`fu-${i}`}
                   onClick={() => handleSendChat(q)}
-                  className="px-2.5 py-1 md:px-3 md:py-1.5 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors text-xs md:text-sm shadow-sm leading-tight break-words max-w-full"
+                  className="px-2.5 py-1 md:px-3 md:py-1.5 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors text-xs md:text-sm shadow-sm leading-tight wrap-break-word max-w-full"
                   title="คลิกเพื่อถามต่อ"
                 >
                   {q}

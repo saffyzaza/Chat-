@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.19.0",
+    "@napi-rs/canvas": "^0.1.65",
     "@types/bcrypt": "^6.0.0",
     "@types/file-saver": "^2.0.7",
     "@types/pg": "^8.15.6",
