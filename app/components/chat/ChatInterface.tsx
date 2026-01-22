@@ -66,6 +66,7 @@ const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: stri
 export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef<boolean>(false);
   const [followUps, setFollowUps] = useState<string[]>([]);
@@ -203,6 +204,7 @@ export const ChatInterface = () => {
       { id: 'สร้างกราฟ', keywords: [ 'visualize', 'dashboard', 'แสดงผลเป็นภาพ', 'สถิติ', 'ข้อมูลภาพ',  'กราฟวงกลม', 'ไดอะแกรม'] },
       { id: 'ฐานข้อมูล', keywords: ['ฐานข้อมูล', 'database', 'ตารางข้อมูล', 'sql', 'query', 'เก็บข้อมูล', 'คลังข้อมูล', 'data structure', 'schema', 'จัดการข้อมูล', 'ชุดข้อมูล'] },
       { id: 'เทียบข้อมูล', keywords: ['เปรียบเทียบ', 'เทียบ', 'compare', 'contrast', 'ความแตกต่าง', 'จุดเด่นจุดด้อย', 'ข้อดีข้อเสีย', 'benchmarking', 'ตารางเทียบ'] },
+      { id: 'ขอคำปรึกษา', keywords: ['ปรึกษา', 'แนะนำ', 'ขอคำแนะนำ', 'consult', 'advice', 'แนวทาง', 'แก้ไขปัญหา'] },
     ];
 
     // ค้นหาคีย์เวิร์ดร่วมกับเจตนา (Intents) เพื่อความแม่นยำ
@@ -538,6 +540,7 @@ export const ChatInterface = () => {
     const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
     try {
+      setLoadingStatus('กำลังระบุหัวข้อและวิเคราะห์เนื้อหา...');
       const isSpecialTool = !!(selectedTool && [
         'เขียนแผนงาน', 'แผนงาน 3 วัน', 'แผนงาน 7 วัน', 'แผนงาน 1 เดือน',
         'ฐานข้อมูล', 'สร้างกราฟ', 'สรุปรายงาน', 'ขอคำปรึกษา', 'เทียบข้อมูล'
@@ -586,17 +589,72 @@ export const ChatInterface = () => {
       if (isSpecialTool && currentContents.length > 0) {
         const lastPart = currentContents[currentContents.length - 1].parts[0];
         if (lastPart.text) {
-          lastPart.text += `\n\n(ภารกิจปัจจุบัน: ${selectedTool} - โปรดอธิบายให้ละเอียดที่สุด ครบถ้วนทุกมิติ และเขียนให้ยาวที่สุดเท่าที่เป็นไปได้เพื่อให้ได้เอกสารที่สมบูรณ์)`;
+          // ส่วนเสริมข้อมูลอ้างอิงจากไฟล์
+          let fileContext = '';
+          if (files && files.length > 0) {
+            fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+            fileContext += '📋 รายละเอียดไฟล์ที่แนบมา (สำหรับการอ้างอิงรูปแบบ Vancouver):\n';
+            
+            // พยายามดึงข้อมูล APA metadata สำหรับแต่ละไฟล์
+            const fileInfos = await Promise.all(files.map(async (file) => {
+              try {
+                // พยายามดึง APA จาก API (ถ้ามีในระบบ)
+                const res = await fetchWithAuth(`/api/files/apa?name=${encodeURIComponent(file.name)}&path=%2F`);
+                const data = await res.json();
+                const apaText = data.success ? data.apa : null;
+                const viewUrl = `http://localhost:3000/api/files/view?path=%2F&name=${encodeURIComponent(file.name)}`;
+                
+                return {
+                  name: file.name,
+                  apa: apaText,
+                  url: viewUrl
+                };
+              } catch {
+                return {
+                  name: file.name,
+                  apa: null,
+                  url: `http://localhost:3000/api/files/view?path=%2F&name=${encodeURIComponent(file.name)}`
+                };
+              }
+            }));
+
+            fileInfos.forEach((info, index) => {
+              fileContext += `${index + 1}. [${info.name}] - ลิงก์: ${info.url}\n`;
+              if (info.apa) {
+                fileContext += `   (APA Metadata: ${info.apa})\n`;
+              }
+            });
+            
+            fileContext += '\n**คำสั่งเพิ่มเติมสำหรับการอ้างอิง:**\n';
+            fileContext += '1. โปรดใช้ข้อมูล APA ด้านบนประกอบการเขียนอ้างอิงรูปแบบ Vancouver Style\n';
+            fileContext += '2. ในส่วนหัวข้อ ## เอกสารอ้างอิง (References) ให้ใช้ชื่อไฟล์เป็นข้อความของลิงก์ และใช้ URL ที่ระบุไว้\n';
+            fileContext += '3. ต้องมีการอ้างอิงในเนื้อหาโดยใช้ตัวเลขในวงเล็บ [1], [2] เสมอ\n';
+            fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+          }
+
+          lastPart.text += `${fileContext}\n\n(ภารกิจปัจจุบัน: ${selectedTool} - โปรดอธิบายให้ละเอียดที่สุด ครบถ้วนทุกมิติ และเขียนให้ยาวที่สุดเท่าที่เป็นไปได้เพื่อให้ได้เอกสารที่สมบูรณ์)`;
         }
       }
 
       // --- ส่วนการเรียก API (Unified Flow) ---
       let iteration = 1;
       let hasMoreContent = true;
-      const MAX_CHUNKS = isSpecialTool ? 3 : 1; 
+      const MAX_CHUNKS = isSpecialTool ? 5 : 1; 
 
       while (hasMoreContent && !stopRequestedRef.current && iteration <= MAX_CHUNKS) {
         console.log(`📡 Fetching chunk ${iteration} (isSpecial: ${isSpecialTool})...`);
+        
+        let statusText = 'กำลังคิด...';
+        if (isSpecialTool) {
+          if (iteration === 1) statusText = 'กำลังหาข้อมูล...';
+          else if (iteration === 2) statusText = 'กำลังตรวจสอบ...';
+          else if (iteration === 3) statusText = 'กำลังร่างเนื้อหา...';
+          else if (iteration === 4) statusText = 'กำลังวิเคราะห์...';
+          else if (iteration === 5) statusText = 'กำลังสรุปผล...';
+          else statusText = `กำลังทำส่วนที่ ${iteration}...`;
+        }
+        
+        setLoadingStatus(statusText);
         
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`, {
           method: "POST",
@@ -667,6 +725,7 @@ export const ChatInterface = () => {
           });
         }
       } else {
+        setLoadingStatus('กำลังจัดรูปแบบข้อมูลและสร้างสื่อเสริม...');
         // ประมวลผลสำหรับแชทปกติ (Charts, Tables, CodeBlocks)
         const charts: any[] = [];
         const tables: any[] = [];
@@ -919,6 +978,7 @@ export const ChatInterface = () => {
                 <MessageList
                   messages={messages}
                   isLoading={isLoading}
+                  loadingStatus={loadingStatus}
                   onRegenerate={handleRegenerate}
                   onEdit={handleEdit}
                   onViewPlan={(content) => {
