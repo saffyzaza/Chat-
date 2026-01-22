@@ -58,13 +58,14 @@ export default function ReferencesPage() {
         
         for (const file of pdfFiles) {
           try {
+            const cleanName = file.name.replace(/^\/+/, '');
             const apaResponse = await fetch(
-              `/api/files/apa?path=${encodeURIComponent(file.path || '/')}&name=${encodeURIComponent(file.name)}`
+              `/api/files/apa?path=${encodeURIComponent(file.path || '/')}&name=${encodeURIComponent(cleanName)}`
             );
             if (apaResponse.ok) {
               const apaData = await apaResponse.json();
               refs.push({
-                fileName: file.name,
+                fileName: cleanName,
                 path: file.path || '/',
                 apa: apaData.apa,
                 lastModified: new Date(file.modifiedDate),

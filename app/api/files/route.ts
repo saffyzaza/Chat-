@@ -2,13 +2,26 @@ import { NextRequest, NextResponse } from 'next/server';
 import { minioClient, MINIO_BUCKET, ensureBucket, normalizePrefix, buildObjectName } from '@/lib/minio';
 import { Pool } from 'pg';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import * as pdfParse from 'pdf-parse';
-import mammoth from 'mammoth';
+
+// Polyfills for pdf-parse in Node.js environment
+if (typeof (global as any).DOMMatrix === 'undefined') {
+  (global as any).DOMMatrix = class {};
+}
+if (typeof (global as any).ImageData === 'undefined') {
+  (global as any).ImageData = class {};
+}
+if (typeof (global as any).Path2D === 'undefined') {
+  (global as any).Path2D = class {};
+}
 
 // รองรับทั้ง local filesystem (สำหรับ external API) และ MinIO
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+
+// ย้าย imports ที่อาจมีปัญหาในบาง environment ไปโหลดแบบ dynamic ภายใน handler
+// import * as pdfParse from 'pdf-parse';
+// import mammoth from 'mammoth';
 
 const TEMP_DIR = path.join(process.cwd(), 'temp');
 
@@ -298,9 +311,13 @@ export async function POST(request: NextRequest) {
       if (isTextLike) {
         textContent = buffer.toString('utf-8');
       } else if (isPdf) {
-        const parsed: any = await (pdfParse as any)(buffer);
+        // Dynamic load to avoid DOMMatrix error in some environments
+        const pdfParse = require('pdf-parse');
+        const parsed: any = await pdfParse(buffer);
         textContent = parsed?.text || null;
       } else if (isDocx) {
+        // Dynamic load mammoth
+        const mammoth = require('mammoth');
         const result = await mammoth.extractRawText({ buffer });
         textContent = result?.value || null;
       }
@@ -379,9 +396,13 @@ export async function POST(request: NextRequest) {
         data: externalApiResponse
       } : null
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error uploading file to MinIO:', error);
-    return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to upload file',
+      details: error?.message || String(error),
+      stack: error?.stack
+    }, { status: 500 });
   }
 }
 
