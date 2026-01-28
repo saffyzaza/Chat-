@@ -29,6 +29,7 @@ import { ChartRenderer } from './ChartRenderer';
 interface ProjectPlanProps {
   content?: string;
   isLoading?: boolean;
+  status?: string;
   onClose?: () => void;
 }
 
@@ -46,8 +47,14 @@ const DOC_CONFIG = {
   },
 };
 
-export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) => {
+export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlanProps) => {
   if (!content && !isLoading) return null;
+
+  const isDeepResearch = status?.toLowerCase().includes('deep research') || 
+                         status?.toLowerCase().includes('deep search') ||
+                         content?.toLowerCase().includes('deep research') ||
+                         content?.toLowerCase().includes('deep search');
+  const displayTitle = isDeepResearch ? 'Deep Research' : 'Project Planning Canvas';
 
   const handleDownload = async () => {
     if (!content) return;
@@ -405,14 +412,14 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border-l border-gray-200 bg-transparent shadow-sm">
+    <div className="relative flex h-full flex-col overflow-hidden border-l border-gray-100 bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex gap-1">
             <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500"></div>
             <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400 [animation-delay:0.2s]"></div>
           </div>
-          <span className="font-bold tracking-tight text-gray-800">Project Planning Canvas</span>
+          <span className="font-bold tracking-tight text-gray-800">{displayTitle}</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -436,20 +443,113 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
         </div>
       </div>
 
-      <div className="flex-1 flex-col items-center overflow-y-auto bg-gray-50/50 p-8">
+      <div className={`flex-1 flex flex-col items-center overflow-y-auto bg-gray-50/50 p-8 ${!content && isLoading ? 'justify-start' : ''}`}>
         {isLoading && (
-          <div className="mb-6 flex w-full max-w-4xl items-center gap-3 border border-blue-100 bg-blue-50 p-4 text-blue-700 shadow-sm rounded-xl">
-            <span className="relative flex h-3 w-3">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-blue-500"></span>
-            </span>
-            <span className="text-sm font-bold italic tracking-wide">
-              AI กำลังวิเคราะห์และร่างแผนงานระดับมืออาชีพ...
-            </span>
+          <div className={`mb-10 flex w-full max-w-4xl flex-col items-center justify-center gap-8 transition-all ${!content ? 'mt-10' : 'items-start'}`}>
+            {/* --- Skeleton Document Animation (กระดาษจำลอง) --- */}
+            {!content && (
+              <div className="w-full max-w-4xl bg-white shadow-2xl border border-gray-100 rounded-sm p-16 md:p-24 min-h-[800px] relative overflow-hidden animate-pulse">
+                {/* แสงวิบวับวิ่งผ่านกระดาษ */}
+                <div className="absolute inset-0 bg-linear-to-r from-transparent via-gray-100/30 to-transparent -translate-x-full animate-[shimmer_2s_infinite]"></div>
+                
+                {/* ประทับตราหรือไอคอนที่หัวกระดาษ */}
+                <div className="flex flex-col items-center mb-16 opacity-20">
+                   <div className="w-16 h-16 bg-blue-600 rounded-full mb-4"></div>
+                   <div className="w-64 h-4 bg-gray-200 rounded"></div>
+                </div>
+
+                {/* ส่วนหัวข้อหลัก */}
+                <div className="space-y-4 mb-12">
+                   <div className="w-3/4 h-10 bg-gray-200 rounded"></div>
+                   <div className="w-1/2 h-10 bg-gray-100 rounded"></div>
+                </div>
+
+                {/* เนื้อหาจำลองบรรทัดต่างๆ */}
+                <div className="space-y-6">
+                   <div className="flex gap-4">
+                      <div className="w-full h-4 bg-gray-100 rounded"></div>
+                   </div>
+                   <div className="w-full h-4 bg-gray-100 rounded"></div>
+                   <div className="w-5/6 h-4 bg-gray-100 rounded"></div>
+                   <div className="w-full h-4 bg-gray-100 rounded"></div>
+                   <div className="w-4/6 h-4 bg-gray-100 rounded"></div>
+
+                   <div className="pt-8 w-1/3 h-8 bg-gray-200 rounded mb-4"></div>
+                   <div className="w-full h-4 bg-gray-100 rounded"></div>
+                   <div className="w-full h-4 bg-gray-100 rounded"></div>
+                   <div className="w-3/4 h-4 bg-gray-100 rounded"></div>
+                   
+                   {/* ตารางจำลอง */}
+                   <div className="mt-10 grid grid-cols-3 gap-2 opacity-50">
+                      <div className="h-10 bg-gray-200 rounded"></div>
+                      <div className="h-10 bg-gray-200 rounded"></div>
+                      <div className="h-10 bg-gray-200 rounded"></div>
+                      <div className="h-20 bg-gray-100 rounded"></div>
+                      <div className="h-20 bg-gray-100 rounded"></div>
+                      <div className="h-20 bg-gray-100 rounded"></div>
+                   </div>
+                </div>
+
+            {/* ส่วนข้อความ Loading ตรงกลางกระดาษ */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/40 backdrop-blur-[2px]">
+               <div className="relative">
+                  <div className="h-24 w-24 rounded-full border-4 border-blue-100 border-t-blue-600 animate-spin"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                     <div className="w-12 h-12 bg-blue-600 rounded-lg animate-bounce flex items-center justify-center shadow-lg">
+                       <div className="w-6 h-1 bg-white rounded-full"></div>
+                     </div>
+                  </div>
+               </div>
+               <h3 className="mt-8 text-2xl font-black text-blue-600 tracking-widest animate-pulse uppercase">Creating Document</h3>
+               
+               {/* เพิ่ม Status เล็กๆ ใต้ Creating Document แทนกล่องใหญ่ */}
+               <div className="mt-6 flex flex-col items-center gap-2 max-w-[80%]">
+                  <div className="flex items-center gap-2 text-blue-500 font-bold italic animate-pulse">
+                    <span className="relative flex h-2 w-2">
+                       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                       <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500"></span>
+                    </span>
+                    <span className="text-sm">{status?.split('\n')[0] || "AI กำลังประมวลผล..."}</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:0s]"></div>
+                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                    <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                  </div>
+               </div>
+            </div>
+
+            <div className="absolute bottom-12 left-0 right-0 text-center text-[10px] text-gray-300 font-bold uppercase tracking-[0.5em] opacity-40">
+              Document Construction Engine v2.0
+            </div>
           </div>
         )}
 
-        {((content || '')
+        {/* แสดงกล่อง Status เฉพาะเมื่อเริ่มมีเนื้อหาแล้ว (เพื่อไม่ให้บัง Skeleton) */}
+        {isLoading && content && (
+          <div className="mb-8 flex w-full max-w-4xl flex-col gap-3 border border-blue-100 bg-white/95 p-5 text-blue-700 shadow-xl rounded-2xl backdrop-blur-md transition-all">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-blue-500"></span>
+              </span>
+              <span className="text-sm font-bold italic tracking-wide">
+                {status?.split('\n')[0] || "AI กำลังเขียนเนื้อหาเพิ่มเติม..."}
+              </span>
+            </div>
+            {status && (status.includes('Thought:') || status.includes('\n\n')) && (
+                <div className="mt-1 text-xs text-gray-600 font-medium flex flex-col gap-1.5 border-l-2 border-blue-200 pl-4 py-1">
+                   {status.split('\n\n').slice(status.includes('\n\n') ? 1 : 0).join('\n\n').split('\n').filter(l => l.trim().length > 5).slice(0, 2).map((line, idx) => (
+                     <div key={idx} className="leading-relaxed truncate">{line}</div>
+                   ))}
+                </div>
+              )}
+          </div>
+        )}
+      </div>
+    )}
+
+    {((content || '')
           .split(/(?:\(เนื้อหาสิ้นสุด\)|เนื้อหาจบลงตรงนี้|ขออภัยครับ)/)[0]
           .trim())
           .split(/\s*\[PAGE[\\_]*BREAK\]\s*|---page-break---/i)
@@ -616,12 +716,68 @@ export const ProjectPlan = ({ content, isLoading, onClose }: ProjectPlanProps) =
                           },
                         },
                         a: {
-                          component: 'a',
-                          props: {
-                            className: 'text-blue-600 underline hover:text-blue-800 transition-colors cursor-pointer text-[10px] break-all block mt-1',
-                            target: '_blank',
-                            rel: 'noopener noreferrer'
-                          },
+                          component: ({ children, ...props }: any) => {
+                            // Extract text from children (could be string, array, or object)
+                            const getChildrenText = (node: any): string => {
+                              if (!node) return '';
+                              if (typeof node === 'string') return node;
+                              if (Array.isArray(node)) return node.map(getChildrenText).join('');
+                              if (node.props && node.props.children) return getChildrenText(node.props.children);
+                              return String(node);
+                            };
+
+                            const rawText = getChildrenText(children);
+                            let displayText = rawText.trim();
+                            const href = (props.href || '').trim();
+
+                            // Logic to shorten link display text
+                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost') || displayText.length > 40) {
+                              try {
+                                // 1. If it's a localhost link (internal file), try to get the 'name' parameter
+                                if (href.includes('localhost') || href.includes('127.0.0.1')) {
+                                  const url = new URL(href, 'http://localhost');
+                                  const fileName = url.searchParams.get('name');
+                                  if (fileName) {
+                                    displayText = `📄 ${decodeURIComponent(fileName)}`;
+                                  } else {
+                                    displayText = '📄 view-document';
+                                  }
+                                } 
+                                // 2. If it's an external link, show only the domain
+                                else if (displayText.startsWith('http')) {
+                                  const url = new URL(displayText);
+                                  displayText = url.hostname.replace('www.', '');
+                                }
+                                // 3. Fallback: If href is http but label is not, and label is too long
+                                else if (href.startsWith('http') && displayText.length > 40) {
+                                  const url = new URL(href);
+                                  displayText = `🔗 ${url.hostname.replace('www.', '')}`;
+                                }
+                              } catch (e) {
+                                // If parsing fails, just truncate long text
+                                if (displayText.length > 30) {
+                                  displayText = displayText.substring(0, 27) + '...';
+                                }
+                              }
+                            }
+                            
+                            // Prevent [object Object] by ensuring we don't accidentally pass an object as text
+                            if (typeof displayText !== 'string') {
+                              displayText = 'Link';
+                            }
+
+                            return (
+                              <a 
+                                {...props} 
+                                className="inline-block text-blue-600 hover:text-blue-800 underline transition-all cursor-pointer text-[13px] mt-1 opacity-90 hover:opacity-100 font-medium break-all max-w-full"
+                                title={rawText} // Show full URL/text on hover
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {displayText}
+                              </a>
+                            );
+                          }
                         },
                     }
                   }}

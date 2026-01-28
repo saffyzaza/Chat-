@@ -21,9 +21,16 @@ export async function POST(
     const { id: sessionId } = await params;
     const { role, content, images, charts, tables, codeBlocks, planContent } = await request.json();
 
-    if (!role || !content) {
+    // ปรับปรุงการตรวจสอบ: อนุญาตให้ content ว่างได้หากมีองค์ประกอบอื่น (เช่น รูปภาพ, ชาร์ต, ตาราง, หรือแผนงาน)
+    const hasAttachments = (images && images.length > 0) || 
+                          (charts && charts.length > 0) || 
+                          (tables && tables.length > 0) || 
+                          (codeBlocks && codeBlocks.length > 0) || 
+                          planContent;
+
+    if (!role || (!content && !hasAttachments)) {
       return NextResponse.json(
-        { message: 'กรุณาระบุ role และ content' },
+        { message: 'กรุณาระบุ role และ content (หรือแนบไฟล์/สื่อ)' },
         { status: 400 }
       );
     }

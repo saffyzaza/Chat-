@@ -410,12 +410,16 @@ export const addMessageToSession = async (
   // ถ้า user login แล้ว ใช้ PostgreSQL
   if (userId) {
     try {
+      // ป้องกันการส่ง content เป็น undefined หรือ null (SQL จะพ่น Error)
+      // หากไม่มี content จริงๆ ให้ส่งเป็น string ว่าง (Postgres ยอมรับ "" แต่ไม่ยอมรับ NULL ถ้าคอลัมน์เป็น NOT NULL)
+      const sanitizedContent = message.content || '';
+
       const response = await fetch(`/api/chat/sessions/${sessionId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           role: message.role,
-          content: message.content,
+          content: sanitizedContent,
           images: message.images,
           charts: message.charts,
           tables: message.tables,
