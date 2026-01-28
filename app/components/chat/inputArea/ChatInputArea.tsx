@@ -63,7 +63,11 @@ const TOOL_PROMPTS = {
   summary: "ช่วยสรุปข้อมูลนี้",
   chart: "ช่วยสร้างกราฟจากข้อมูลนี้",
   plan: "ช่วยวางแผนจากข้อมูลนี้",
-  database: "ช่วยค้นหาข้อมูลจากฐานข้อมูลนี้"
+  database: "ช่วยค้นหาข้อมูลจากฐานข้อมูลนี้",
+  deepResearch: "ช่วยทำการวิจัยเชิงลึกเกี่ยวกับเรื่องนี้",
+  promptA: "A = บทความต้นฉบับ",
+  promptB: "B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค",
+  promptC: "C = สถานการณ์โรค"
 };
 
 export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: ChatInputAreaProps) => {
@@ -151,9 +155,10 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
         'สรุปรายงาน': TOOL_PROMPTS.summary,
         'สร้างกราฟ': TOOL_PROMPTS.chart,
         'เขียนแผนงาน': TOOL_PROMPTS.plan,
-        'แผนงาน 3 วัน': "ช่วยวางแผนงานระยะสั้น 3 วัน จากข้อมูลนี้",
-        'แผนงาน 7 วัน': "ช่วยวางแผนงาน 7 วัน จากข้อมูลนี้",
-        'แผนงาน 1 เดือน': "ช่วยวางแผนงานระยะยาว 1 เดือน จากข้อมูลนี้",
+        'Deep Research': TOOL_PROMPTS.deepResearch,
+        'A = บทความต้นฉบับ': TOOL_PROMPTS.promptA,
+        'B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค': TOOL_PROMPTS.promptB,
+        'C = สถานการณ์โรค': TOOL_PROMPTS.promptC,
         'ฐานข้อมูล': TOOL_PROMPTS.database
       };
       finalPrompt = toolMap[selectedTool] || "";
@@ -557,14 +562,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
           <div className="relative">
             {openPopup === 'tools' && (
               <div ref={toolsPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                {/* <PopupMenuItem 
-                  icon={<IoSearchOutline size={22} className="text-gray-600" />} 
-                  text="ค้นหาข้อมูล"
+                <PopupMenuItem 
+                  icon={<IoSearchOutline size={22} className="text-orange-500" />} 
+                  text="Deep Research"
                   onClick={() => { 
                     setOpenPopup(null); 
-                    setSelectedTool('ค้นหาข้อมูล');
+                    setSelectedTool('Deep Research');
                   }}
-                /> */}
+                />
                 <PopupMenuItem 
                   icon={<IoGitCompareOutline size={22} className="text-gray-600" />} 
                   text="เปรียบเทียบข้อมูล"
@@ -608,21 +613,21 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                 <div className="flex flex-col ml-9 border-l border-gray-100 pl-2 space-y-1">
                   <button 
                     className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
-                    onClick={() => { setOpenPopup(null); setSelectedTool('แผนงาน 3 วัน'); }}
+                    onClick={() => { setOpenPopup(null); setSelectedTool('A = บทความต้นฉบับ'); }}
                   >
-                    • ระยะสั้น 3 วัน
+                    A = บทความต้นฉบับ
                   </button>
                   <button 
                     className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
-                    onClick={() => { setOpenPopup(null); setSelectedTool('แผนงาน 7 วัน'); }}
+                    onClick={() => { setOpenPopup(null); setSelectedTool('B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค'); }}
                   >
-                    • ระยะกลาง 7 วัน
+                    B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค
                   </button>
                   <button 
                     className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
-                    onClick={() => { setOpenPopup(null); setSelectedTool('แผนงาน 1 เดือน'); }}
+                    onClick={() => { setOpenPopup(null); setSelectedTool('C = สถานการณ์โรค'); }}
                   >
-                    • ระยะยาว 1 เดือน
+                    C = สถานการณ์โรค
                   </button>
                 </div>
                 <PopupMenuItem 
@@ -631,7 +636,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('ฐานข้อมูล');
-                    setShowDatabaseModal(true);
+                    setShowDatabaseModal(false);
                   }}
                 />
               </div>

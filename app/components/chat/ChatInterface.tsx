@@ -11,6 +11,10 @@ import { PROMPT_COMPARE } from './promptcompare';
 import { PROMPT_CONSULT } from './promptconsult';
 import { PROMPT_SUMMARY } from './promptsummary';
 import { PROMPT_CHART as PROMPT_CHART_DOC } from './promptchart_doc';
+import { PROMPTA } from './prompta';
+import { PROMPTB } from './promptb';
+import { PROMPTC } from './promptc';
+import { PROMPT_DEEP_RESEARCH } from './promptdeepresearch';
 import { getChatSession, saveChatSession } from '../../utils/chatStorage';
 import { fetchWithAuth } from '@/app/utils/auth';
 import { LoginPopup } from '../auth/LoginPopup';
@@ -41,22 +45,22 @@ const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: stri
         
         title="วิธีลดความเครียด"
         description="ค้นหาเทคนิคและกิจกรรมผ่อนคลาย"
-        onClick={() => onSuggestionClick("ช่วยแนะนำวิธีลดความเครียดที่ทำได้จริงในชีวิตประจำวัน เป็นข้อๆ พร้อมตัวอย่างกิจกรรมและเวลาใช้ ไม่ต้องทักทายหรือแนะนำตัว เริ่มด้วยหัวข้อวิธีทันที")}
+        onClick={() => onSuggestionClick("วิธีลดความเครียดที่ทำได้จริงในชีวิตประจำวัน เป็นข้อๆ พร้อมตัวอย่างกิจกรรมและเวลาใช้ ไม่ต้องทักทาย เริ่มด้วยหัวข้อวิธีทันที")}
       />
       <SuggestionCard
         title="อาหารสุขภาพ"
         description="ไอเดียเมนูสำหรับคนทำงาน"
-        onClick={() => onSuggestionClick("ขอไอเดียเมนูอาหารสุขภาพสำหรับคนทำงานที่มีเวลา จำกัด 5 เมนู ทำง่าย วัตถุดิบหาง่าย ระบุแคลอรี่คร่าวๆ ไม่ต้องทักทาย เริ่มด้วยรายการเมนูเลย")}
+        onClick={() => onSuggestionClick("ไอเดียเมนูอาหารสุขภาพสำหรับคนทำงานที่มีเวลา จำกัด 5 เมนู ทำง่าย วัตถุดิบหาง่าย ระบุแคลอรี่คร่าวๆ ไม่ต้องทักทาย เริ่มด้วยรายการเมนูเลย")}
       />
       <SuggestionCard
         title="ออกกำลังกายที่บ้าน"
         description="แนะนำท่าง่ายๆ ไม่ต้องใช้อุปกรณ์"
-        onClick={() => onSuggestionClick("แนะนำท่าออกกำลังกายง่ายๆ ที่ทำได้ที่บ้านโดยไม่ใช้อุปกรณ์ พร้อมตัวอย่างโปรแกรม 7 วันสำหรับมือใหม่ หลีกเลี่ยงการทักทาย ให้เริ่มตอบด้วยรายการท่าและคำแนะนำด้านความปลอดภัยทันที")}
+        onClick={() => onSuggestionClick("ท่าออกกำลังกายง่ายๆ ที่ทำได้ที่บ้านโดยไม่ใช้อุปกรณ์ พร้อมตัวอย่างโปรแกรม 7 วันสำหรับมือใหม่ หลีกเลี่ยงการทักทาย ให้เริ่มตอบด้วยรายการท่าและท่าความปลอดภัยทันที")}
       />
       <SuggestionCard
         title="ปรึกษาการเลิกบุหรี่"
         description="ขั้นตอนและเคล็ดลับในการเลิก"
-        onClick={() => onSuggestionClick("ขอขั้นตอนการเลิกบุหรี่แบบเป็นลำดับ พร้อมเทคนิครับมืออาการอยากและแหล่งช่วยเหลือในไทย สรุปสั้น กระชับ ไม่ต้องทักทาย เริ่มด้วยขั้นตอนที่ 1")}
+        onClick={() => onSuggestionClick("ขั้นตอนการเลิกบุหรี่แบบเป็นลำดับ พร้อมเทคนิครับมืออาการอยากและแหล่งช่วยเหลือในไทย สรุปสั้น กระชับ ไม่ต้องทักทาย เริ่มด้วยขั้นตอนที่ 1")}
       />
     </div>
   </>
@@ -199,16 +203,17 @@ export const ChatInterface = () => {
     
     // รายการเครื่องมือและคีย์เวิร์ดที่เกี่ยวข้อง (เพิ่ม Keywords ที่หลากหลาย)
     const toolMap = [
-      { id: 'เขียนแผนงาน', keywords: ['แผนงาน', 'โครงการ', 'roadmap', 'แผนการดำเนินงาน', 'plan', 'proposal', 'ขอบเขตงาน', 'ร่างโครงการ', 'แผนพัฒนา', 'ตารางงาน', 'workflow', 'กำหนดการ', 'ยุทธศาสตร์'] },
-      { id: 'สรุปรายงาน', keywords: ['รายงาน', 'สรุปเนื้อหา', 'ทำสรุป', 'summary', 'report', 'บทสรุป', 'เอกสาร', 'ร่างเอกสาร', 'บันทึก', 'ข้อสรุป', 'บทความ', 'เนื้อหาสรุป', 'จัดทำเอกสาร', 'pdf', 'docx', 'ไฟล์เอกสาร'] },
-      { id: 'สร้างกราฟ', keywords: [ 'visualize', 'dashboard', 'แสดงผลเป็นภาพ', 'สถิติ', 'ข้อมูลภาพ',  'กราฟวงกลม', 'ไดอะแกรม'] },
-      { id: 'ฐานข้อมูล', keywords: ['ฐานข้อมูล', 'database', 'ตารางข้อมูล', 'sql', 'query', 'เก็บข้อมูล', 'คลังข้อมูล', 'data structure', 'schema', 'จัดการข้อมูล', 'ชุดข้อมูล'] },
-      { id: 'เทียบข้อมูล', keywords: ['เปรียบเทียบ', 'เทียบ', 'compare', 'contrast', 'ความแตกต่าง', 'จุดเด่นจุดด้อย', 'ข้อดีข้อเสีย', 'benchmarking', 'ตารางเทียบ'] },
+      // { id: 'เขียนแผนงาน', keywords: ['แผนงาน', 'โครงการ', 'roadmap', 'แผนการดำเนินงาน', 'plan', 'proposal', 'ขอบเขตงาน', 'ร่างโครงการ', 'แผนพัฒนา', 'ตารางงาน', 'workflow', 'กำหนดการ', 'ยุทธศาสตร์'] },
+      // { id: 'สรุปรายงาน', keywords: ['รายงาน', 'สรุปเนื้อหา', 'ทำสรุป', 'summary', 'report', 'บทสรุป', 'เอกสาร', 'ร่างเอกสาร', 'บันทึก', 'ข้อสรุป', 'บทความ', 'เนื้อหาสรุป', 'จัดทำเอกสาร', 'pdf', 'docx', 'ไฟล์เอกสาร'] },
+      // { id: 'สร้างกราฟ', keywords: [ 'visualize', 'dashboard', 'แสดงผลเป็นภาพ', 'สถิติ', 'ข้อมูลภาพ',  'กราฟวงกลม', 'ไดอะแกรม'] },
+      // { id: 'ฐานข้อมูล', keywords: ['ฐานข้อมูล', 'database', 'ตารางข้อมูล', 'sql', 'query', 'เก็บข้อมูล', 'คลังข้อมูล', 'data structure', 'schema', 'จัดการข้อมูล', 'ชุดข้อมูล'] },
+      // { id: 'เทียบข้อมูล', keywords: ['เปรียบเทียบ', 'เทียบ', 'compare', 'contrast', 'ความแตกต่าง', 'จุดเด่นจุดด้อย', 'ข้อดีข้อเสีย', 'benchmarking', 'ตารางเทียบ'] },
+      { id: 'Deep Research', keywords: ['research', 'วิจัย', 'ค้นคว้าลึก', 'สืบค้นข้อมูล', 'ตรวจสอบข้อมูล', 'deep research', 'deep search', 'ค้นคว้าเชิงลึก', 'ข้อมูลเชิงลึก'] },
       { id: 'ขอคำปรึกษา', keywords: ['ปรึกษา', 'แนะนำ', 'ขอคำแนะนำ', 'consult', 'advice', 'แนวทาง', 'แก้ไขปัญหา'] },
     ];
 
     // ค้นหาคีย์เวิร์ดร่วมกับเจตนา (Intents) เพื่อความแม่นยำ
-    const intents = ['ช่วย', 'ทำ', 'ขอ', 'สรุป', 'ร่าง', 'สร้าง', 'เขียน', 'ออกแบบ', 'อยากได้'];
+    const intents = [''];
     
     for (const tool of toolMap) {
       const hasKeyword = tool.keywords.some(k => t.includes(k));
@@ -225,6 +230,95 @@ export const ChatInterface = () => {
   // Request throttling: เก็บเวลาของ request ล่าสุด
   const lastRequestTimeRef = useRef<number>(0);
   const MIN_REQUEST_INTERVAL = 1000; // 1 วินาที
+
+  // Smart File Search: ค้นหาไฟล์ที่เกี่ยวข้องจากคีย์เวิร์ด และดาวน์โหลดไฟล์มาแนบ
+  const searchRelevantFiles = async (query: string): Promise<any[]> => {
+    try {
+      const queryLower = query.toLowerCase();
+      
+      // Stopwords ที่ไม่ควรนำไปค้นหา
+      const stopwords = ['เรื่อง', 'ของ', 'ที่', 'ใน', 'จาก', 'เป็น', 'และ', 'หรือ', 'ไหม', 'ครับ', 'ค่ะ', 'คือ', 'มี', 'ได้', 'ให้', 'กับ', 'ถึง', 'แล้ว', 'ไว้', 'อยู่', 'ว่า'];
+      
+      // แยกคำจากคำถาม (split by space and filter)
+      const words = queryLower
+        .split(/[\s,.:;!?()]+/)
+        .filter(w => w.length >= 3) // เอาเฉพาะคำที่ยาว >= 3 ตัวอักษร
+        .filter(w => !stopwords.includes(w)); // ลบ stopwords
+      
+      if (words.length === 0) return [];
+      
+      console.log('🔍 Smart Search: Extracted keywords from query:', words.join(', '));
+      
+      // ดึงไฟล์ทั้งหมดจาก Minio
+      const libRes = await fetchWithAuth('/api/files?path=%2F');
+      if (!libRes.ok) return [];
+      
+      const libData = await libRes.json();
+      const allPdfs = (libData.files || []).filter((f: any) => f.name.endsWith('.pdf'));
+      
+      // กรองไฟล์ที่ชื่อตรงกับคีย์เวิร์ดที่สกัดได้
+      const relevantFiles = allPdfs.filter((f: any) => {
+        const nameLower = f.name.toLowerCase();
+        return words.some(keyword => nameLower.includes(keyword));
+      });
+      
+      console.log(`✅ Found ${relevantFiles.length} relevant files:`, relevantFiles.map((f: any) => f.name));
+      
+      // ดาวน์โหลดและแปลงไฟล์เป็น base64 พร้อมสร้าง fileInfo
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const fileInfos = await Promise.all(
+        relevantFiles.slice(0, 3).map(async (f: any) => {
+          try {
+            const cleanName = f.name.replace(/^\//g, '');
+            
+            // ดาวน์โหลดไฟล์จาก Minio
+            const downloadUrl = `/api/files/download?path=%2F&name=${encodeURIComponent(cleanName)}`;
+            const fileRes = await fetchWithAuth(downloadUrl);
+            
+            let pdfBase64 = null;
+            if (fileRes.ok) {
+              const blob = await fileRes.blob();
+              pdfBase64 = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(blob);
+              });
+              console.log(`📄 Downloaded and converted: ${cleanName}`);
+            }
+            
+            // ดึง APA metadata
+            const apaRes = await fetchWithAuth(`/api/files/apa?name=${encodeURIComponent(cleanName)}&path=%2F`);
+            const data = await apaRes.json();
+            
+            return {
+              name: cleanName,
+              apa: data.success ? data.apa : null,
+              url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}`,
+              pdfBase64: pdfBase64 // เพิ่ม base64 ของไฟล์
+            };
+          } catch (error) {
+            console.error(`❌ Error processing file ${f.name}:`, error);
+            const cleanName = f.name.replace(/^\//g, '');
+            return {
+              name: cleanName,
+              apa: null,
+              url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}`,
+              pdfBase64: null
+            };
+          }
+        })
+      );
+      
+      // กรองเฉพาะไฟล์ที่ดาวน์โหลดสำเร็จ
+      const validFiles = fileInfos.filter(f => f.pdfBase64 !== null);
+      console.log(`📎 Successfully downloaded ${validFiles.length} files for auto-attach`);
+      
+      return validFiles;
+    } catch (error) {
+      console.error('❌ Error searching relevant files:', error);
+      return [];
+    }
+  };
 
   // ใช้ chat history hook
   const {
@@ -387,6 +481,12 @@ export const ChatInterface = () => {
     const controller = abortControllerRef.current;
     console.log('📤 Sending chat:', { promptLength: prompt.length, images: imageUrls?.length, files: files?.length });
 
+    // Smart File Search: ค้นหาไฟล์ที่เกี่ยวข้องอัตโนมัติ
+    const autoAttachedFiles = await searchRelevantFiles(prompt);
+    if (autoAttachedFiles.length > 0) {
+      console.log('📎 Auto-attached files:', autoAttachedFiles.map(f => f.name).join(', '));
+    }
+
     // แปลง blob URLs เป็น base64 ถาวรสำหรับแสดงผล (แบบ parallel)
     const permanentImageUrls: string[] = [];
     if (imageUrls && imageUrls.length > 0) {
@@ -506,6 +606,24 @@ export const ChatInterface = () => {
         }
       });
     }
+    
+    // แนบไฟล์ที่ค้นหาอัตโนมัติจาก Smart Search
+    if (autoAttachedFiles && autoAttachedFiles.length > 0) {
+      console.log('📎 Attaching auto-searched files to API call...');
+      for (const autoFile of autoAttachedFiles) {
+        if (autoFile.pdfBase64) {
+          const base64Data = autoFile.pdfBase64.split(',')[1];
+          currentParts.push({
+            inlineData: {
+              mimeType: 'application/pdf',
+              data: base64Data
+            }
+          });
+          console.log(`✅ Attached: ${autoFile.name}`);
+        }
+      }
+    }
+    
     if (prompt) {
       currentParts.push({ text: prompt });
     }
@@ -524,7 +642,218 @@ export const ChatInterface = () => {
       }
     }
 
-    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller);
+    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller, autoAttachedFiles);
+  };
+
+  /**
+   * Deep Research using Interactions API with streaming
+   */
+  const performDeepResearch = async (
+    prompt: string,
+    files?: File[],
+    sessionId?: string | null,
+    controller?: AbortController,
+    autoAttachedFiles?: any[]
+  ) => {
+    const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+    
+    try {
+      setLoadingStatus('🔍 [Deep Research] กำลังเริ่มการวิจัยเชิงลึก...');
+      
+      // สร้าง input multimodal (text + files)
+      // รวม PROMPT_DEEP_RESEARCH เข้าไปเพื่อให้ AI ทำตามกฎเหล็กและขั้นตอนที่ระบุในไฟล์ prompt
+      const finalPrompt = `[SYSTEM_INSTRUCTION]\n${PROMPT_DEEP_RESEARCH}\n\n[USER_QUESTION]\n${prompt}`;
+      const input: any[] = [{ type: 'text', text: finalPrompt }];
+      
+      // แนบไฟล์ที่ค้นหาอัตโนมัติ (ถ้ามี)
+      if (autoAttachedFiles && autoAttachedFiles.length > 0) {
+        for (const file of autoAttachedFiles) {
+          if (file.pdfBase64) {
+            input.push({
+              type: 'document',
+              mime_type: 'application/pdf',
+              data: file.pdfBase64.split(',')[1]
+            });
+          }
+        }
+      }
+      
+      // แนบไฟล์ที่ผู้ใช้เลือก (ถ้ามี)
+      if (files && files.length > 0) {
+        for (const file of files) {
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(file);
+          });
+          input.push({
+            type: 'document',
+            mime_type: file.type,
+            data: base64.split(',')[1]
+          });
+        }
+      }
+      
+      // เรียก Interactions API แบบ streaming
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/interactions?alt=sse`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': API_KEY || ''
+        },
+        body: JSON.stringify({
+          input: input,
+          agent: 'deep-research-pro-preview-12-2025',
+          background: true,
+          stream: true,
+          agent_config: {
+            type: 'deep-research',
+            thinking_summaries: 'auto'
+          }
+        }),
+        signal: controller?.signal
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Interactions API failed: ${response.status}`);
+      }
+      
+      // อ่าน SSE stream
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = '';
+      let interactionId = '';
+      let currentPhase = 'PLANNING';
+      let buffer = '';
+      
+      if (!reader) throw new Error('No reader available');
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || stopRequestedRef.current) break;
+        
+        // ใช้ stream: true เพื่อจัดการ multi-byte characters และสะสม buffer
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        
+        // บรรทัดสุดท้ายอาจจะไม่สมบูรณ์ ให้เก็บไว้ใน buffer เพื่อรอ chunk ถัดไป
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine || trimmedLine.startsWith(':')) continue; // ข้ามบรรทัดว่างและ heartbeat (บรรทัดที่ขึ้นต้นด้วย :)
+          if (!trimmedLine.startsWith('data: ')) continue;
+          
+          const jsonStr = trimmedLine.substring(6).trim();
+          if (jsonStr === '[DONE]') continue;
+
+          try {
+            const data = JSON.parse(jsonStr);
+            
+            // รองรับทั้งรูปแบบ Interaction API และ Delta มาตรฐาน
+            const eventType = data.event_type || (data.delta ? 'content.delta' : null);
+            const delta = data.delta;
+            
+            // จับ interaction ID
+            if (eventType === 'interaction.start' || data.interaction?.id) {
+              interactionId = data.interaction?.id || interactionId;
+              if (interactionId) console.log('🆔 Interaction ID:', interactionId);
+            }
+            
+            // แสดงความคิด (thought summary)
+            if (delta?.type === 'thought_summary' || (eventType === 'content.delta' && delta?.type === 'thought_summary')) {
+              const thought = delta.content?.text || '';
+              console.log('💭 Thought:', thought);
+              
+              // อัปเดตสถานะตาม phase และความเห็น
+              let phaseText = '';
+              const thoughtUpper = thought.toUpperCase();
+              if (thoughtUpper.includes('PLANNING')) {
+                currentPhase = 'PLANNING';
+                phaseText = '📋 [PLANNING] กำลังวางแผนการค้นคว้า...';
+              } else if (thought.includes('SEARCH')) {
+                currentPhase = 'SEARCHING';
+                phaseText = '🔍 [SEARCHING] กำลังค้นหาข้อมูล...';
+              } else if (thought.includes('REFIN')) {
+                currentPhase = 'REFINING';
+                phaseText = '✨ [REFINING] กำลังกลั่นกรองข้อมูล...';
+              } else if (thought.includes('VERIF')) {
+                currentPhase = 'VERIFYING';
+                phaseText = '🔬 [VERIFYING] กำลังตรวจสอบความถูกต้อง...';
+              } else if (thought.includes('SYNTH')) {
+                currentPhase = 'SYNTHESIS';
+                phaseText = '📝 [SYNTHESIS] กำลังสังเคราะห์รายงาน...';
+              } else {
+                phaseText = `🤖 [RESEARCHING] กำลังทำงานในขั้นตอน ${currentPhase}...`;
+              }
+
+              // แสดงข้อมูลความคิดจริง (Thought details)
+              const cleanThought = thought
+                .replace(/PLANNING|SEARCHING|REFINING|VERIFYING|SYNTHESIS/g, '')
+                .trim();
+              
+              if (cleanThought) {
+                setLoadingStatus(`${phaseText}\n\n${cleanThought}`);
+              } else {
+                setLoadingStatus(phaseText);
+              }
+            }
+            
+            // รับข้อความจริง
+            if (delta?.type === 'text' || delta?.text || (eventType === 'content.delta' && (delta?.type === 'text' || delta?.text))) {
+              const text = delta?.text || delta?.content?.text || '';
+              if (text) {
+                accumulatedText += text;
+                setPlanContent(accumulatedText); // แสดงแบบ real-time
+              }
+            }
+            
+            // เสร็จสมบูรณ์
+            if (eventType === 'interaction.complete' || data.event_type === 'interaction.complete') {
+              console.log('✅ Deep Research completed');
+              break;
+            }
+            
+            // เกิดข้อผิดพลาด
+            if (data.event_type === 'error') {
+              console.error('❌ Deep Research error:', data.error);
+              throw new Error(data.error?.message || 'Unknown error');
+            }
+          } catch (e) {
+            console.warn('Failed to parse SSE line:', line);
+          }
+        }
+      }
+      
+      // บันทึกผลลัพธ์
+      const statusMessage: Message = {
+        role: 'assistant',
+        content: `✅ ดำเนินการ Deep Research ให้เรียบร้อยแล้ว! ระบบได้ทำการวิจัยเชิงลึกและจัดทำรายงานฉบับสมบูรณ์ไว้ในแผงด้านขวาแล้ว`,
+        planContent: accumulatedText,
+        isNewMessage: true
+      };
+      
+      setMessages(prev => [...prev, statusMessage]);
+      
+      if (sessionId) {
+        await addMessageToSession(sessionId, {
+          role: 'assistant',
+          content: statusMessage.content,
+          planContent: accumulatedText,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Deep Research Error:', error);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `❌ เกิดข้อผิดพลาดในการทำ Deep Research: ${error.message}\n\n💡 กรุณาลองใหม่อีกครั้ง`
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   /**
@@ -535,18 +864,26 @@ export const ChatInterface = () => {
     selectedTool: string | null = null,
     files?: File[],
     sessionId?: string | null,
-    controller?: AbortController
+    controller?: AbortController,
+    autoAttachedFiles?: any[]
   ) => {
     const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+
+    // ถ้าเป็น Deep Research ให้ใช้ Interactions API แทน
+    if (selectedTool === 'Deep Research') {
+      const lastUserMessage = contentsToSend[contentsToSend.length - 1];
+      const prompt = lastUserMessage?.parts?.find((p: any) => p.text)?.text || '';
+      return await performDeepResearch(prompt, files, sessionId, controller, autoAttachedFiles);
+    }
 
     try {
       setLoadingStatus('กำลังระบุหัวข้อและวิเคราะห์เนื้อหา...');
       const isSpecialTool = !!(selectedTool && [
-        'เขียนแผนงาน', 'แผนงาน 3 วัน', 'แผนงาน 7 วัน', 'แผนงาน 1 เดือน',
-        'ฐานข้อมูล', 'สร้างกราฟ', 'สรุปรายงาน', 'ขอคำปรึกษา', 'เทียบข้อมูล'
+        'เขียนแผนงาน', 'สร้างกราฟ', 'สรุปรายงาน', 'ขอคำปรึกษา', 'เทียบข้อมูล',
+        'A = บทความต้นฉบับ'
+        , 'B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค', 'C = สถานการณ์โรค'
       ].includes(selectedTool));
-      const modelName = "gemini-2.0-flash-exp";
-      
+      const modelName = "gemini-3.0-pro";
       let accumulatedResponse = "";
       let currentContents = [...contentsToSend];
       
@@ -564,8 +901,14 @@ export const ChatInterface = () => {
           currentSystemPrompt = PROMPT_COMPARE;
         } else if (selectedTool === 'สร้างกราฟ') {
           currentSystemPrompt = PROMPT_CHART_DOC;
-        } else if (selectedTool === 'ฐานข้อมูล' || selectedTool === 'ค้นหาข้อมูล') {
+        } else if (selectedTool === 'ค้นหาข้อมูล') {
           currentSystemPrompt = PROMPT_SEARCH;
+        } else if (selectedTool === 'A = บทความต้นฉบับ') {
+          currentSystemPrompt = PROMPTA;
+        } else if (selectedTool === 'B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค') {
+          currentSystemPrompt = PROMPTB;
+        } else if (selectedTool === 'C = สถานการณ์โรค') {
+          currentSystemPrompt = PROMPTC;
         }
       }
 
@@ -573,8 +916,8 @@ export const ChatInterface = () => {
         role: 'system',
         parts: [{ 
           text: isSpecialTool 
-            ? currentSystemPrompt + "\n\n(ประกาศสำคัญ: ระบบนี้กำหนดให้คุณทำงานแบบต่อเนื่อง 5 Chunks โปรดวางแผนเนื้อหาให้ยาวและละเอียดระดับสูงเพื่อให้ครบทั้ง 5 ส่วน ห้ามสรุปจบเร็วเกินไป และห้ามทวนคำสั่งเดิม)" 
-            : SYSTEM_PROMPT 
+            ? currentSystemPrompt + "\n\n(ประกาศสำคัญ: ระบบนี้กำหนดให้คุณทำงานแบบต่อเนื่อง 5 Chunks โปรดวางแผนเนื้อหาให้ยาวและละเอียดระดับสูงเพื่อให้ครบทั้ง 5 ส่วน ห้ามสรุปจบเร็วเกินไป และห้ามทวนคำสั่งเดิม)"
+            : SYSTEM_PROMPT
         }]
       };
 
@@ -590,20 +933,23 @@ export const ChatInterface = () => {
       let hasMoreContent = true;
       const MAX_CHUNKS = isSpecialTool ? 5 : 1; 
 
-      // สร้างส่วนเสริมข้อมูลอ้างอิงจากไฟล์ (เตรียมไว้ใช้ทุก Chunk)
+      // สร้างส่วนเสริมข้อมูลอ้างอิงจากไฟล์ (ใช้ทั้งแชทปกติและ Special Tools)
       let fileContext = '';
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       
+      let allFileInfos: any[] = [];
+      let hasAutoAttached = false;
+      
+      // 🔍 ขั้นตอนที่ 1: ค้นหาและรวบรวมไฟล์จาก Minio (สำหรับทุกโหมด)
+      setLoadingStatus('🔍 กำลังค้นหาไฟล์จาก Minio...');
+      
       if (isSpecialTool) {
-        fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-        fileContext += '📋 รายละเอียดไฟล์และแหล่งอ้างอิงที่เกี่ยวข้อง (Vancouver Style):\n';
-        
-        let allFileInfos: any[] = [];
         let isUsingAttachedFiles = false;
         
         // 1. ดึงไฟล์ที่แนบมาปัจจุบัน (ลำดับความสำคัญสูงสุด)
         if (files && files.length > 0) {
           isUsingAttachedFiles = true;
+          setLoadingStatus('📎 กำลังโหลดไฟล์ที่แนบ...');
           const currentFileInfos = await Promise.all(files.map(async (file) => {
             try {
               const cleanName = file.name.replace(/^\/+/, '');
@@ -612,18 +958,33 @@ export const ChatInterface = () => {
               return { 
                 name: cleanName, 
                 apa: data.success ? data.apa : null, 
-                url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` 
+                url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}`,
+                source: 'attached'
               };
             } catch {
               const cleanName = file.name.replace(/^\/+/, '');
-              return { name: cleanName, apa: null, url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` };
+              return { 
+                name: cleanName, 
+                apa: null, 
+                url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}`,
+                source: 'attached'
+              };
             }
           }));
           allFileInfos = [...currentFileInfos];
         }
+        
+        // 1.5 เพิ่มไฟล์ที่ค้นหาอัตโนมัติจากคีย์เวิร์ด (ถ้ามี)
+        if (autoAttachedFiles && autoAttachedFiles.length > 0) {
+          setLoadingStatus(`✅ พบไฟล์ที่เกี่ยวข้อง ${autoAttachedFiles.length} ไฟล์`);
+          hasAutoAttached = true;
+          const autoFilesWithSource = autoAttachedFiles.map(f => ({ ...f, source: 'auto' }));
+          allFileInfos = [...allFileInfos, ...autoFilesWithSource];
+        }
 
-        // 2. ถ้าไม่มีไฟล์แนบ ให้ดึงไฟล์จาก Library (References) มาเป็นบริบทแทน
-        if (!isUsingAttachedFiles) {
+        // 2. สำหรับ Special Tools อื่นๆ: ดึงไฟล์ตัวอย่าง 5 ไฟล์
+        if (!isUsingAttachedFiles && !hasAutoAttached) {
+          setLoadingStatus('📚 กำลังโหลดไฟล์อ้างอิง...');
           try {
             const libRes = await fetchWithAuth('/api/files?path=%2F');
             if (libRes.ok) {
@@ -638,11 +999,17 @@ export const ChatInterface = () => {
                   return { 
                     name: cleanName, 
                     apa: data.success ? data.apa : null, 
-                    url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` 
+                    url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}`,
+                    source: 'reference'
                   };
                 } catch {
                   const cleanName = f.name.replace(/^\/+/, '');
-                  return { name: cleanName, apa: null, url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}` };
+                  return { 
+                    name: cleanName, 
+                    apa: null, 
+                    url: `${origin}/admin/view-pdf?path=%2F&name=${encodeURIComponent(cleanName)}`,
+                    source: 'reference'
+                  };
                 }
               }));
               allFileInfos = libraryInfos;
@@ -651,41 +1018,100 @@ export const ChatInterface = () => {
             console.error('Error loading library references:', err);
           }
         }
-
-        allFileInfos.forEach((info, index) => {
-          fileContext += `${index + 1}. [${info.name}]\n`;
-          fileContext += `   - ลิงก์อ้างอิง: ${info.url}\n`; // ให้มีป้ายกำกับชัดเจน
-          if (info.apa) fileContext += `   - (APA Metadata: ${info.apa})\n`;
-        });
-        
-        fileContext += '\n**คำสั่งบังคับสำหรับการอ้างอิง (Critical Reference Rules):**\n';
-        fileContext += '1. บังคับ: หากมีการอ้างอิงข้อมูลจากไฟล์ ให้ใส่ตัวเลขในวงเล็บ [1], [2] ตามลำดับในเนื้อหา\n';
-        fileContext += '2. บังคับ: หัวข้อ ## เอกสารอ้างอิง (References) ต้องแสดงรายการเป็นลำดับตัวเลข 1., 2.\n';
-        fileContext += '3. บังคับ: ลิงก์ URL จะต้องเขียนขนานไปกับบรรทัด ห้ามมี Newline หรือ Space ภายในรูปแบบ [ข้อความ](URL) โดยเด็ดขาด\n';
-        fileContext += '4. บังคับ: ห้ามทำการตัดคำ (Line wrap) ในส่วนของ URL แม้ URL จะยาวมากก็ตาม เพื่อไม่ให้ลิงก์เสีย\n';
-        fileContext += '5. บังคับ: ห้ามเติมตัวอักษรหรือสรุป URL เอง ให้ใช้ URL ตามที่ระบบระบุไว้ด้านบนแบบเป๊ะๆ 100%\n';
-        fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
       }
+      
+      // 📋 สร้าง File Context จากไฟล์ที่รวบรวมได้
+      fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+      fileContext += '📚 **คลังเอกสาร Minio** (รายการไฟล์ที่พร้อมใช้งาน):\n';
+      fileContext += `✅ จำนวนไฟล์ทั้งหมด: **${allFileInfos.length} ไฟล์**\n\n`;
+
+      // แบ่งกลุ่มไฟล์ตามประเภท
+      const attachedFiles = allFileInfos.filter(f => f.source === 'attached');
+      const autoFiles = allFileInfos.filter(f => f.source === 'auto');
+      const referenceFiles = allFileInfos.filter(f => f.source === 'reference');
+      
+      // แสดงไฟล์ที่แนบมาด้วยตนเอง
+      if (attachedFiles.length > 0) {
+        fileContext += '📎 **ไฟล์ที่แนบมา:**\n';
+        attachedFiles.forEach((info, index) => {
+          fileContext += `   ${index + 1}. [${info.name}]\n`;
+          fileContext += `      → ลิงก์: ${info.url}\n`;
+          if (info.apa) fileContext += `      → APA: ${info.apa}\n`;
+        });
+        fileContext += '\n';
+      }
+      
+      // แสดงไฟล์ที่ค้นหาอัตโนมัติ
+      if (autoFiles.length > 0) {
+        fileContext += '🎯 **ไฟล์ที่ระบบค้นหาโดยอัตโนมัติ (Smart Search):**\n';
+        fileContext += '⚠️ **คำสั่งสำคัญ (บังคับปฏิบัติ):** ระบบได้แนบไฟล์ PDF มาให้แล้ว โปรดอ่านเนื้อหาและตอบคำถามตามข้อมูลในไฟล์\n\n';
+        fileContext += '🚫 **ห้ามเด็ดขาด:**\n';
+        fileContext += '   • ห้ามพูดว่า "จากเอกสาร PDF ที่คุณให้มา"\n';
+        fileContext += '   • ห้ามพูดว่า "จากไฟล์ที่แนบมา"\n';
+        fileContext += '   • ห้ามพูดว่า "เป็นงานวิจัยเกี่ยวกับ..."\n';
+        fileContext += '   • ห้ามบอกแหล่งที่มาของข้อมูลในประโยคแรก\n\n';
+        fileContext += '✅ **วิธีตอบที่ถูกต้อง:**\n';
+        fileContext += '   • เริ่มตอบเลยด้วยเนื้อหาสาระสำคัญทันที\n';
+        fileContext += '   • ตอบเหมือนเป็นความรู้ของคุณเอง\n';
+        fileContext += '   • ใส่อ้างอิงเลขที่ [1], [2] ในเนื้อหา และระบุแหล่งที่มาท้ายคำตอบเท่านั้น\n\n';
+        autoFiles.forEach((info, index) => {
+          fileContext += `   ${index + 1}. [${info.name}] ✅ ไฟล์แนบมาแล้ว\n`;
+          fileContext += `      → ลิงก์: ${info.url}\n`;
+          if (info.apa) fileContext += `      → APA: ${info.apa}\n`;
+        });
+        fileContext += '\n';
+      }
+      
+      // แสดงไฟล์จากคลัง - ลบออกเพราะไม่ใช้ใน generateContent แล้ว
+      
+      // แสดงไฟล์อ้างอิง (สำหรับ Special Tools อื่นๆ)
+      if (referenceFiles.length > 0) {
+        fileContext += '📖 **ไฟล์อ้างอิง (References):**\n';
+        referenceFiles.forEach((info, index) => {
+          fileContext += `   ${index + 1}. [${info.name}]\n`;
+          fileContext += `      → ลิงก์: ${info.url}\n`;
+          if (info.apa) fileContext += `      → APA: ${info.apa}\n`;
+        });
+        fileContext += '\n';
+      }
+      
+      if (isSpecialTool) {
+        // สำหรับ Special Tools ให้คำสั่งแบบเข้มงวด
+        fileContext += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        fileContext += '📌 **คำสั่งบังคับสำหรับการอ้างอิง (Critical Reference Rules):**\n';
+        fileContext += '1. ✅ บังคับ: หากมีการอ้างอิงข้อมูลจากไฟล์ ให้ใส่ตัวเลขในวงเล็บ [1], [2] ตามลำดับในเนื้อหา\n';
+        fileContext += '2. ✅ บังคับ: หัวข้อ ## เอกสารอ้างอิง (References) ต้องแสดงรายการเป็นลำดับตัวเลข 1., 2.\n';
+        fileContext += '3. ✅ บังคับ: ลิงก์ URL จะต้องเขียนขนานไปกับบรรทัด ห้ามมี Newline หรือ Space ภายในรูปแบบ [ข้อความ](URL) โดยเด็ดขาด\n';
+        fileContext += '4. ✅ บังคับ: ห้ามทำการตัดคำ (Line wrap) ในส่วนของ URL แม้ URL จะยาวมากก็ตาม เพื่อไม่ให้ลิงก์เสีย\n';
+        fileContext += '5. ✅ บังคับ: ห้ามเติมตัวอักษรหรือสรุป URL เอง ให้ใช้ URL ตามที่ระบบระบุไว้ด้านบนแบบเป๊ะๆ 100%\n';
+      } else {
+        // สำหรับแชทปกติ ให้คำแนะนำแบบอ่อนนุ่ม
+        fileContext += '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+        fileContext += '💡 **คำแนะนำการอ้างอิง:**\n';
+        fileContext += '- หากคำตอบเกี่ยวข้องกับเอกสารข้างต้น สามารถอ้างอิงด้วยตัวเลข [1], [2] ได้\n';
+        fileContext += '- ระบุแหล่งอ้างอิงท้ายคำตอบเมื่อใช้ข้อมูลจากเอกสาร\n';
+      }
+      fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
 
       while (hasMoreContent && !stopRequestedRef.current && iteration <= MAX_CHUNKS) {
-        console.log(`📡 Fetching chunk ${iteration} (isSpecial: ${isSpecialTool})...`);
+        console.log(`📡 Fetching chunk ${iteration} (isSpecial: ${isSpecialTool}, tool: ${selectedTool})...`);
         
         let statusText = 'กำลังคิด...';
-        if (isSpecialTool) {
-          if (iteration === 1) statusText = 'กำลังหาข้อมูล...';
-          else if (iteration === 2) statusText = 'กำลังตรวจสอบ...';
-          else if (iteration === 3) statusText = 'กำลังร่างเนื้อหา...';
-          else if (iteration === 4) statusText = 'กำลังวิเคราะห์...';
-          else if (iteration === 5) statusText = 'กำลังสรุปผล...';
-          else statusText = `กำลังทำส่วนที่ ${iteration}...`;
-        }
+        if (iteration === 1) statusText = 'กำลังหาข้อมูล...';
+        else if (iteration === 2) statusText = 'กำลังตรวจสอบ...';
+        else if (iteration === 3) statusText = 'กำลังร่างเนื้อหา...';
+        else if (iteration === 4) statusText = 'กำลังวิเคราะห์...';
+        else if (iteration === 5) statusText = 'กำลังสรุปผล...';
+        else statusText = `กำลังทำส่วนที่ ${iteration}...`;
         
         setLoadingStatus(statusText);
 
         // ปรับปรุงคำสั่งสำหรับ Chunk แรก
         if (iteration === 1 && isSpecialTool) {
           const lastMsg = currentContents[currentContents.length - 1];
-          const instructions = `${fileContext}\n\n(ภารกิจ: ${selectedTool} - เริ่มเขียน Chunk ที่ 1 จาก 5 ให้ละเอียด ห้ามพูดทักทาย ห้ามตอบรับ ให้เริ่มเนื้อหาทันที)`;
+          const taskName = selectedTool;
+          
+          const instructions = `${fileContext}\n\n(ภารกิจ: ${taskName} - เริ่มต้นด้วยการระบุหัวข้อที่ต้องค้นหาและสรุปข้อมูลที่พบจากไฟล์เบื้องต้น อย่าเพิ่งสรุปจบ)`;
           
           // ค้นหา text part เพื่อเตรียมส่งคำสั่ง (หลีกเลี่ยงการเขียนทับ inlineData/binary)
           const textPart = lastMsg.parts.find((p: any) => p.text !== undefined);
@@ -715,7 +1141,7 @@ export const ChatInterface = () => {
         const data = await response.json();
         const chunkText: string = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         
-        if (!chunkText || (isSpecialTool && iteration > 1 && chunkText.length < 150)) {
+        if (!chunkText || (isSpecialTool && iteration > 1 && chunkText.length < 50)) {
           hasMoreContent = false;
           break;
         }
@@ -725,12 +1151,13 @@ export const ChatInterface = () => {
         if (isSpecialTool) {
           setPlanContent(accumulatedResponse);
           currentContents.push({ role: 'model', parts: [{ text: chunkText }] });
-          // เพิ่ม Prompt เตือนความจำในการเขียน Chunk ถัดไป (ย้ำเรื่องอ้างอิงและห้ามพูดนอกเรื่อง)
+
+          // เพิ่ม Prompt เตือนความจำในการเขียน Chunk ถัดไป
+          const nextStepPrompt = `${fileContext}\n\nนี่คือ Chunk ที่ ${iteration} จาก 5 ของงาน "${selectedTool}" โปรดเขียนเนื้อหาส่วนถัดไปให้ละเอียดและต่อเนื่องทันที **ห้ามพูดตอบรับ ห้ามทักทาย ห้ามสรุปจบ** และต้องมีการอ้างอิงตัวเลขจากไฟล์ [1], [2] ในเนื้อหาที่เขียนด้วยหากเกี่ยวข้อง`;
+
           currentContents.push({ 
             role: 'user', 
-            parts: [{ 
-              text: `${fileContext}\n\nนี่คือ Chunk ที่ ${iteration} จาก 5 ของงาน "${selectedTool}" โปรดเขียนเนื้อหาส่วนถัดไปให้ละเอียดและต่อเนื่องทันที **ห้ามพูดตอบรับ ห้ามทักทาย ห้ามสรุปจบ** และต้องมีการอ้างอิงตัวเลขจากไฟล์ [1], [2] ในเนื้อหาที่เขียนด้วยหากเกี่ยวข้อง` 
-            }] 
+            parts: [{ text: nextStepPrompt }] 
           });
         }
 
@@ -795,7 +1222,17 @@ export const ChatInterface = () => {
         });
 
         const { cleaned: finalContent, followUps: fups } = extractFollowUpsAndClean(processedContent.trim());
-        const finalSanitized = sanitizeTail(finalContent);
+        let finalSanitized = sanitizeTail(finalContent);
+
+        // กรณีที่การ Clean ทำให้ข้อความว่างเปล่า (เช่น มีแต่คำแนะนำคำถามต่อ)
+        // ให้ใช้ข้อความดั้งเดิมที่ Trim แล้ว หรือข้อความเริ่มต้นหากว่างจริงๆ
+        if (!finalSanitized && !charts.length && !tables.length && !codeBlocks.length) {
+          if (fups.length > 0) {
+            finalSanitized = "นี่คือประเด็นที่น่าสนใจที่คุณสามารถถามต่อได้ครับ:";
+          } else {
+            finalSanitized = processedContent.trim() || "...";
+          }
+        }
 
         const aiMessage: Message = {
           role: 'assistant',
@@ -811,7 +1248,7 @@ export const ChatInterface = () => {
         setFollowUps(fups);
 
         if (sessionId) {
-          await addMessageToSession(sessionId, { ...aiMessage, timestamp: new Date().toISOString() });
+          await addMessageToSession(sessionId, { ...aiMessage, content: finalSanitized, timestamp: new Date().toISOString() });
         }
       }
 
@@ -841,6 +1278,7 @@ export const ChatInterface = () => {
   // ฟังก์ชันหยุดการตอบ กู้คืนสภาพ และลบข้อความล่าสุด (user + assistant)
   const handleStop = async () => {
     stopRequestedRef.current = true;
+    setLoadingStatus('');
     try {
       abortControllerRef.current?.abort();
     } catch {}
@@ -1052,6 +1490,7 @@ export const ChatInterface = () => {
                     <ProjectPlan 
                       content={planContent} 
                       isLoading={isLoading} 
+                      status={loadingStatus}
                       onClose={() => setShowPlanPanel(false)}
                     />
                   </div>
