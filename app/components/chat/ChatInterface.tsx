@@ -883,7 +883,7 @@ export const ChatInterface = () => {
         'A = บทความต้นฉบับ'
         , 'B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค', 'C = สถานการณ์โรค'
       ].includes(selectedTool));
-      const modelName = "gemini-3.0-pro";
+      const modelName = "gemini-2.5-flash-lite";
       let accumulatedResponse = "";
       let currentContents = [...contentsToSend];
       
@@ -925,7 +925,7 @@ export const ChatInterface = () => {
         temperature: isSpecialTool ? 0.8 : 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: isSpecialTool ? 2048 : 8192,
+        maxOutputTokens: isSpecialTool ? 2048 : 4096,
       };
 
       // --- ส่วนการเรียก API (Unified Flow) ---

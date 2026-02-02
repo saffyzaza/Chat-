@@ -25,64 +25,53 @@ export default function ReferencesPage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/planning/history');
+      // 1. ดึงรายการไฟล์จริงจาก MinIO (Recursive)
+      const filesRes = await fetch('/api/files?path=/&recursive=true');
+      let minioFiles: string[] = [];
+      if (filesRes.ok) {
+        const filesData = await filesRes.json();
+        minioFiles = (filesData.files || [])
+          .filter((f: any) => f.type === 'file')
+          .map((f: any) => `${f.path}${f.name}`);
+      }
+
+      // 2. ดึงข้อมูล APA ทั้งหมดจากฐานข้อมูลโดยตรง
+      const response = await fetch('/api/files/apa');
       if (response.ok) {
         const data = await response.json();
-        // ถ้า API ไม่มี endpoint นี้ ให้ดึงจากการสแกนโฟลเดอร์
-        if (data.references) {
-          setReferences(data.references);
+        if (data.success && data.references) {
+          const refs: ApaReference[] = data.references
+            .filter((item: any) => {
+              // กรองเฉพาะไฟล์ที่มี Abstract
+              const hasAbstract = item.apa?.abstract && item.apa.abstract.trim() !== '' && item.apa.abstract !== 'null';
+              if (!hasAbstract) return false;
+
+              // กรองเฉพาะไฟล์ที่มีอยู่จริงใน MinIO
+              const fileKey = `${item.meta?.file_path}${item.meta?.file_name}`;
+              return minioFiles.includes(fileKey);
+            })
+            .map((item: any) => ({
+              fileName: item.meta?.file_name || 'ไม่ระบุชื่อไฟล์',
+              path: item.meta?.file_path || '/',
+              apa: item.apa,
+              lastModified: new Date(item.meta?.created_at || Date.now()),
+            }));
+          setReferences(refs);
         } else {
-          // Fallback: ดึงทั้งหมด PDF files และ APA metadata
-          await loadReferencesFromFiles();
+          setReferences([]);
         }
       } else {
-        await loadReferencesFromFiles();
+        setError('ไม่สามารถเชื่อมต่อ API ได้');
       }
     } catch (err) {
       console.error('Error loading references:', err);
-      await loadReferencesFromFiles();
+      setError('เกิดข้อผิดพลาดในการโหลดข้อมูล');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadReferencesFromFiles = async () => {
-    try {
-      // ดึง APA data จากไฟล์ทั้งหมด
-      const response = await fetch('/api/files?path=/');
-      if (response.ok) {
-        const data = await response.json();
-        const pdfFiles = data.files?.filter((f: any) => f.name.endsWith('.pdf')) || [];
-        
-        const refs: ApaReference[] = [];
-        
-        for (const file of pdfFiles) {
-          try {
-            const cleanName = file.name.replace(/^\/+/, '');
-            const apaResponse = await fetch(
-              `/api/files/apa?path=${encodeURIComponent(file.path || '/')}&name=${encodeURIComponent(cleanName)}`
-            );
-            if (apaResponse.ok) {
-              const apaData = await apaResponse.json();
-              refs.push({
-                fileName: cleanName,
-                path: file.path || '/',
-                apa: apaData.apa,
-                lastModified: new Date(file.modifiedDate),
-              });
-            }
-          } catch (err) {
-            console.error(`Error loading APA for ${file.name}:`, err);
-          }
-        }
-        
-        setReferences(refs);
-      }
-    } catch (err) {
-      console.error('Error loading files:', err);
-      setError('ไม่สามารถโหลดข้อมูลอ้างอิงได้');
-    }
-  };
+  // ลบฟังก์ชัน loadReferencesFromFiles แบบเก่าออกเนื่องจากช้าและซ้ำซ้อน
 
   const filteredReferences = references.filter((ref) =>
     ref.fileName.toLowerCase().includes(searchTerm.toLowerCase())

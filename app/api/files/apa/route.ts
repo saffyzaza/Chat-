@@ -36,8 +36,28 @@ export async function GET(request: NextRequest) {
     const fileName = searchParams.get('name');
     const filePath = searchParams.get('path');
 
+    // ถ้าไม่มีพารามิเตอร์ ให้คืนค่าทั้งหมดที่มีในฐานข้อมูล
     if (!fileName || !filePath) {
-      return NextResponse.json({ error: 'Missing parameters' }, { status: 400 });
+      const allQuery = `
+        SELECT apa_json, file_name, file_path, mime_type, size_bytes, created_at
+        FROM file_apa_metadata
+        ORDER BY created_at DESC
+      `;
+      const allResult = await pool.query(allQuery);
+      return NextResponse.json({
+        success: true,
+        count: allResult.rows.length,
+        references: allResult.rows.map(row => ({
+          apa: row.apa_json,
+          meta: {
+            file_name: row.file_name,
+            file_path: row.file_path,
+            mime_type: row.mime_type,
+            size_bytes: row.size_bytes,
+            created_at: row.created_at,
+          }
+        }))
+      });
     }
 
     const query = `
@@ -165,8 +185,8 @@ export async function POST(request: NextRequest) {
           console.log(`[APA POST] 📦 Base64 encoded: ${base64Data.length} characters`);
           
           const genAI = new GoogleGenerativeAI(genAIKey);
-          const visionModel = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-          console.log('[APA POST] ✓ Vision model created: gemini-2.0-flash-exp');
+          const visionModel = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
+          console.log('[APA POST] ✓ Vision model created: gemini-3.0-flash');
           
           let mimeType = 'text/plain';
           if (isPdf) mimeType = 'application/pdf';
@@ -220,68 +240,61 @@ export async function POST(request: NextRequest) {
     let apaJson: any = null;
     try {
       const genAI = new GoogleGenerativeAI(genAIKey);
-      const modelName = process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp';
+      const modelName = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
       const model = genAI.getGenerativeModel({ model: modelName });
 
-      const schemaDescription = `CRITICAL INSTRUCTIONS:
-1. READ THE ENTIRE DOCUMENT CAREFULLY
-2. EXTRACT EVERY SINGLE PIECE OF INFORMATION
-3. Fill in ALL available fields - do NOT skip any data found in the document
-4. For references: list EVERY reference with complete details
-5. For researchers: extract ONLY ONE person - the principal investigator/project leader (หัวหน้าโครงการ/หัวหน้าวิจัย) ONLY. Ignore all co-researchers and team members
-6. For keywords: extract EVERY keyword mentioned
+      const schemaDescription = `SYSTEM ROLE
+คุณคือผู้ช่วยประมวลผลเอกสารวิชาการสำหรับระบบฐานข้อมูลงานวิจัยระดับ production
 
-Return as JSON:
+TASK
+อ่านข้อความจากเอกสารวิชาการที่ให้มา แล้วแปลงเป็น JSON ตาม schema ที่กำหนด
+ใช้เฉพาะข้อมูลที่ปรากฏในเอกสารจริงเท่านั้น
+
+STRICT RULES (สำคัญมาก)
+1. บทคัดย่อ (abstract) ต้องเป็นข้อความที่ปรากฏในเอกสารจริงเท่านั้น
+2. ห้ามแต่ง ห้ามสรุป ห้ามเรียบเรียงใหม่ ห้ามอนุมาน
+3. หากพบบทคัดย่อ ให้คัดลอกข้อความเต็ม (รวมคำว่า "บทคัดย่อ")
+4. หากไม่พบบทคัดย่อ ให้ใส่ค่า null
+5. ห้ามใช้ข้อมูลจากชื่อไฟล์ ความรู้เดิม หรือการคาดเดา
+6. ห้ามใช้คำว่า inferred, likely, based on filename, suggests
+7. หากข้อมูลใดไม่ปรากฏชัด ให้ใช้ null หรือ [] เท่านั้น
+8. เอาเฉพาะภาษาไทย abstract
+
+KEYWORDS
+- ดึงเฉพาะคำสำคัญที่ปรากฏในเอกสาร
+- หากไม่พบ ให้เป็น array ว่าง
+
+RESEARCHERS
+- ระบุเฉพาะรายชื่อที่ปรากฏในเอกสาร
+- หากไม่พบ ให้เป็น []
+
+OUTPUT FORMAT
+- ส่งออกเฉพาะ JSON เท่านั้น
+- ต้อง parse ได้ทันที
+- ห้ามมีข้อความอธิบายนอก JSON
+
+OUTPUT SCHEMA (ต้องตรงทุก field)
 {
-  "documentType": "research_proposal|thesis|journal_article|report|other",
-  "projectInfo": {
-    "projectCode": "extract if exists",
-    "proposalCode": "extract if exists",
-    "titleThai": "EXTRACT COMPLETE THAI TITLE",
-    "titleEnglish": "EXTRACT COMPLETE ENGLISH TITLE",
-    "university": "EXTRACT ALL UNIVERSITIES MENTIONED",
-    "budgetYear": "extract year",
-    "totalBudget": 0,
-    "otherInfo": "any other project details"
-  },
-  "references": [
-    {
-      "type": "journal_article|book|thesis|thai_journal|thai_dissertation|website|report",
-      "authors": [{"firstName": "", "lastName": "", "firstNameThai": "", "lastNameThai": "", "middleInitial": ""}],
-      "year": 2024,
-      "title": "COMPLETE TITLE",
-      "journal": "journal name",
-      "volume": "12",
-      "issue": "3",
-      "pages": "45-60",
-      "doi": "10.xxx",
-      "publisher": "publisher",
-      "institution": "institution",
-      "degreeType": "Master|PhD"
-    }
-  ],
-  "researchers": [
-    {
-      "role": "หัวหน้าโครงการ",
-      "titleThai": "title",
-      "firstNameThai": "EXTRACT",
-      "lastNameThai": "EXTRACT",
-      "firstNameEnglish": "extract if available",
-      "lastNameEnglish": "extract if available",
-      "affiliation": "EXTRACT COMPLETE AFFILIATION",
-      "contribution": 0.0,
-      "newResearcher": true|false
-    }
-  ],
+  "abstract": null,
   "keywords": {
-    "thai": ["EXTRACT EVERY THAI KEYWORD"],
-    "english": ["EXTRACT EVERY ENGLISH KEYWORD"]
+    "thai": [],
+    "english": []
   },
-  "abstract": "EXTRACT project name or title from the document, or derive from filename if needed. THIS SHOULD BE A SHORT PROJECT NAME/TITLE, NOT A FULL ABSTRACT",
-  "additionalInfo": "capture any other important data"
-}
-
-MANDATORY: Return researchers array with ONLY ONE object - the principal investigator only. DO NOT include multiple researchers. Return ONLY valid JSON.`;
+  "references": [],
+  "projectInfo": {
+    "titleThai": null,
+    "titleEnglish": null,
+    "proposalCode": null,
+    "budgetYear": null,
+    "university": null,
+    "projectCode": null,
+    "totalBudget": null,
+    "otherInfo": null
+  },
+  "researchers": [],
+  "documentType": "",
+  "additionalInfo": null
+}`;
       const basePrompt = `You are an expert researcher analyzing a document. Your task is to EXTRACT ALL INFORMATION COMPLETELY AND ACCURATELY. ${schemaDescription}`;
       const contentForModel = textContent && textContent.trim().length > 0
         ? `File: ${fileName}\nContent:\n${textContent.substring(0, 20000)}`
