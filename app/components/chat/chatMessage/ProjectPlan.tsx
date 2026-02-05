@@ -25,6 +25,7 @@ import {
 import { saveAs } from 'file-saver';
 import { FiDownload, FiX } from 'react-icons/fi';
 import { ChartRenderer } from './ChartRenderer';
+import { TableRenderer } from './TableRenderer';
 
 interface ProjectPlanProps {
   content?: string;
@@ -281,6 +282,94 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           );
         } catch (e) {
           console.error('Chart parse error in word export', e);
+        }
+        i++;
+        continue;
+      }
+
+      if (trimmed === '```json:table' || trimmed === '```json:table-ai') {
+        let tableJsonContent = '';
+        i++;
+        while (i < lines.length && !lines[i].trim().includes('```')) {
+          tableJsonContent += lines[i];
+          i++;
+        }
+        try {
+          const cleanJson = tableJsonContent
+            .replace(/\/\/.*$/gm, '')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/,(\s*[\]}])/g, '$1')
+            .trim();
+          const tableData = JSON.parse(cleanJson);
+          const rawHeaders = tableData.columns || tableData.headers || tableData.header || [];
+          let rawRows = tableData.rows || tableData.data || tableData.items || [];
+          
+          if (Array.isArray(tableData)) rawRows = tableData;
+          
+          let processedHeaders = [...rawHeaders];
+          let processedRows = Array.isArray(rawRows) ? [...rawRows] : [];
+
+          if (processedRows.length > 0 && typeof processedRows[0] === 'object' && !Array.isArray(processedRows[0])) {
+            if (processedHeaders.length === 0) processedHeaders = Object.keys(processedRows[0]);
+            processedRows = processedRows.map(rowObj => {
+              if (typeof rowObj === 'object' && !Array.isArray(rowObj)) {
+                return processedHeaders.map(h => rowObj[h] ?? rowObj[String(h)] ?? '');
+              }
+              return rowObj;
+            });
+          }
+
+          const docTableRows: TableRow[] = [];
+          
+          // Header Row
+          if (processedHeaders.length > 0) {
+            docTableRows.push(new TableRow({
+              children: processedHeaders.map(h => new TableCell({
+                width: { size: 100 / processedHeaders.length, type: WidthType.PERCENTAGE },
+                children: [new Paragraph({
+                  children: parseTextToWordElements(String(h), { bold: true, size: 24 }),
+                  alignment: AlignmentType.CENTER,
+                })],
+                shading: { fill: 'F2F2F2' },
+                borders: {
+                  top: { style: BorderStyle.SINGLE, size: 4 },
+                  bottom: { style: BorderStyle.SINGLE, size: 4 },
+                  left: { style: BorderStyle.SINGLE, size: 4 },
+                  right: { style: BorderStyle.SINGLE, size: 4 },
+                }
+              }))
+            }));
+          }
+
+          // Data Rows
+          processedRows.forEach(row => {
+            if (Array.isArray(row)) {
+              docTableRows.push(new TableRow({
+                children: row.map(cell => new TableCell({
+                  children: [new Paragraph({
+                    children: parseTextToWordElements(String(cell), { size: 24 }),
+                    spacing: { line: 240 }
+                  })],
+                  borders: {
+                    top: { style: BorderStyle.SINGLE, size: 4 },
+                    bottom: { style: BorderStyle.SINGLE, size: 4 },
+                    left: { style: BorderStyle.SINGLE, size: 4 },
+                    right: { style: BorderStyle.SINGLE, size: 4 },
+                  }
+                }))
+              }));
+            }
+          });
+
+          if (docTableRows.length > 0) {
+            docChildren.push(new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: docTableRows,
+              margins: { bottom: 400 },
+            }));
+          }
+        } catch (e) {
+          console.error('Table AI parse error in word export', e);
         }
         i++;
         continue;
@@ -667,16 +756,36 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                       code: {
                         component: ({ children, className }: any) => {
                           const isChart = className?.includes('language-json:chart');
-                          if (isChart) {
+                          const isTable = className?.includes('language-json:table');
+                          
+                          if (isChart || isTable) {
                             try {
-                              const chartData = JSON.parse(children);
-                              return (
-                                <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
-                                  <ChartRenderer chartData={chartData} />
-                                </div>
-                              );
+                              const content = Array.isArray(children) ? children.join('') : children;
+                              const cleanJson = content
+                                .replace(/\/\/.*$/gm, '')
+                                .replace(/\/\*[\s\S]*?\*\//g, '')
+                                .replace(/,(\s*[\]}])/g, '$1')
+                                .trim();
+                                
+                              if (isChart) {
+                                const chartData = JSON.parse(cleanJson);
+                                return (
+                                  <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
+                                    <ChartRenderer chartData={chartData} />
+                                  </div>
+                                );
+                              }
+                              
+                              if (isTable) {
+                                const tableData = JSON.parse(cleanJson);
+                                return (
+                                  <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
+                                    <TableRenderer tableData={tableData} />
+                                  </div>
+                                );
+                              }
                             } catch (e) {
-                              return <pre className="p-4 bg-red-50 text-red-500 rounded-lg break-all">{children}</pre>;
+                              return <pre className="p-4 bg-red-50 text-red-500 rounded-lg break-all">{String(children)}</pre>;
                             }
                           }
                           return <code className="bg-gray-100 px-2 py-1 rounded text-blue-600 font-mono text-sm break-all">{children}</code>;

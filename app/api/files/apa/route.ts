@@ -251,7 +251,7 @@ TASK
 ใช้เฉพาะข้อมูลที่ปรากฏในเอกสารจริงเท่านั้น
 
 STRICT RULES (สำคัญมาก)
-1. บทคัดย่อ (abstract) ต้องเป็นข้อความที่ปรากฏในเอกสารจริงเท่านั้น
+1. บทคัดย่อ (abstract) ต้องเป็นข้อความที่ปรากฏในเอกสารจริงเท่านั้น abstract ต้อง 1000 คำขึ้นไป
 2. ห้ามแต่ง ห้ามสรุป ห้ามเรียบเรียงใหม่ ห้ามอนุมาน
 3. หากพบบทคัดย่อ ให้คัดลอกข้อความเต็ม (รวมคำว่า "บทคัดย่อ")
 4. หากไม่พบบทคัดย่อ ให้ใส่ค่า null
@@ -259,6 +259,7 @@ STRICT RULES (สำคัญมาก)
 6. ห้ามใช้คำว่า inferred, likely, based on filename, suggests
 7. หากข้อมูลใดไม่ปรากฏชัด ให้ใช้ null หรือ [] เท่านั้น
 8. เอาเฉพาะภาษาไทย abstract
+9. ภาษาห้ามเขียนผิด
 
 KEYWORDS
 - ดึงเฉพาะคำสำคัญที่ปรากฏในเอกสาร
@@ -294,7 +295,9 @@ OUTPUT SCHEMA (ต้องตรงทุก field)
   "researchers": [],
   "documentType": "",
   "additionalInfo": null
-}`;
+} 
+  
+`;
       const basePrompt = `You are an expert researcher analyzing a document. Your task is to EXTRACT ALL INFORMATION COMPLETELY AND ACCURATELY. ${schemaDescription}`;
       const contentForModel = textContent && textContent.trim().length > 0
         ? `File: ${fileName}\nContent:\n${textContent.substring(0, 20000)}`

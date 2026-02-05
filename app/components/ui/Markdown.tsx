@@ -90,7 +90,11 @@ const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }
             },
             a: {
               component: 'a',
-              props: { className: 'text-blue-500 hover:underline text-[8px] break-all block mt-0.5', target: '_blank', rel: 'noreferrer' }
+              props: { 
+                className: 'text-blue-600 hover:text-blue-800 transition-colors underline decoration-blue-300 underline-offset-2', 
+                target: '_blank', 
+                rel: 'noreferrer' 
+              }
             },
             h1: {
               component: 'h1',

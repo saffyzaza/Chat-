@@ -22,6 +22,8 @@ export default function RootLayout({
       <head>
         {/* Chart.js */}
         <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        {/* Chart.js Datalabels Plugin */}
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
         
         {/* Prism.js CSS */}
         <link href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" rel="stylesheet" />

@@ -95,22 +95,33 @@ html, body {
 
 /* Styled AI tables (JSON:table renderer) */
 .ai-table {
-  /* Responsive table font size (เล็กลงให้พอดีตา) */
-  font-size: clamp(0.10rem, 0.10rem + 0.5rem, var(--md-table-font-size));
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
 }
+
+.ai-table-sm {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.ai-table-lg {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
 .ai-table thead th {
-  font-weight: 400;
-  white-space: nowrap; /* keep header in one line */
-  word-break: keep-all; /* avoid breaking Thai characters */
+  white-space: nowrap;
+  word-break: keep-all; 
 }
+
 .ai-table td,
 .ai-table th {
-  padding: 0.4rem 0.65rem;
-  white-space: normal;
-  word-break: break-word;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
 }
-.ai-table-sm { font-size: calc(var(--md-table-font-size) - 0.1rem); }
-.ai-table-lg { font-size: calc(var(--md-table-font-size) + 0.09rem); }
 
 /* Chart container defaults */
 .chart-container {

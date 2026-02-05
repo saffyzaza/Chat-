@@ -57,80 +57,155 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
     // สร้าง chart ใหม่ พร้อมค่าเริ่มต้นที่เป็นมิตรกับ mobile/flex
     // @ts-ignore
     if (typeof window !== 'undefined' && window.Chart) {
-      // ถ้าเป็น line chart เติมค่าดีฟอลต์ให้ดูสวยขึ้น
-      if (chartData.type === 'line') {
-        const defaultColor = '#3b82f6';
-        chartData.data.datasets = chartData.data.datasets.map((ds) => {
-          const borderColor = (Array.isArray(ds.borderColor) ? ds.borderColor[0] : ds.borderColor) || defaultColor;
-          return {
+      const Chart = (window as any).Chart;
+      const ChartDataLabels = (window as any).ChartDataLabels;
+
+      // ตรวจสอบความพร้อมของข้อมูล
+      if (!chartData?.data || !chartData?.type) {
+        console.warn('ChartRenderer: chartData or required properties are missing', chartData);
+        return;
+      }
+
+      // สร้าง Deep Copy ของข้อมูลเพื่อป้องกันการ mutation prop โดยตรง
+      const clonedData = JSON.parse(JSON.stringify(chartData.data));
+      
+      // ตรวจสอบความถูกต้องของโครงสร้างสถิติ
+      if (clonedData && clonedData.datasets) {
+        clonedData.datasets = clonedData.datasets.map((ds: any) => {
+          // แปลงข้อมูลเป็นตัวเลข (ป้องกันกรณี AI ส่งเป็นสตริง)
+          const numericData = Array.isArray(ds.data) 
+            ? ds.data.map((v: any) => v === null || v === undefined ? null : Number(v))
+            : [];
+            
+          const baseDs = {
             ...ds,
-            borderColor: ds.borderColor || borderColor,
-            borderWidth: (ds as any).borderWidth ?? 3,
-            tension: (ds as any).tension !== undefined ? (ds as any).tension : 0.35,
-            pointRadius: (ds as any).pointRadius ?? 4,
-            pointHoverRadius: (ds as any).pointHoverRadius ?? 6,
-            pointBackgroundColor: (ds as any).pointBackgroundColor ?? '#ffffff',
-            pointBorderColor: (ds as any).pointBorderColor ?? borderColor,
-            fill: (ds as any).fill ?? 'start',
-            backgroundColor: ds.backgroundColor || createLineGradient(ctx, borderColor || defaultColor),
-          } as any;
+            data: numericData,
+          };
+
+          // ปรับแต่งเพิ่มเติมสำหรับ Line Chart
+          if (chartData.type === 'line') {
+            const defaultColor = '#3b82f6';
+            const borderColor = (Array.isArray(ds.borderColor) ? ds.borderColor[0] : ds.borderColor) || defaultColor;
+            return {
+              ...baseDs,
+              borderColor: ds.borderColor || borderColor,
+              borderWidth: ds.borderWidth ?? 3,
+              tension: ds.tension !== undefined ? ds.tension : 0.4,
+              pointRadius: ds.pointRadius ?? 4,
+              pointHoverRadius: ds.pointHoverRadius ?? 6,
+              pointBackgroundColor: ds.pointBackgroundColor ?? '#ffffff',
+              pointBorderColor: ds.pointBorderColor ?? borderColor,
+              fill: ds.fill ?? 'start',
+              backgroundColor: ds.backgroundColor || createLineGradient(ctx, borderColor),
+            };
+          }
+          return baseDs;
         });
       }
 
+      // 1. เตรียม Plugin Defaults
+      const defaultDatalabels = {
+        color: (context: any) => {
+          if (chartData.type === 'pie' || chartData.type === 'doughnut') return '#fff';
+          return '#444'; 
+        },
+        display: (context: any) => {
+          if (chartData.type === 'pie' || chartData.type === 'doughnut') {
+            const dataset = context.chart.data.datasets[0];
+            const total = dataset.data.reduce((acc: number, val: number) => acc + (val || 0), 0);
+            const value = dataset.data[context.dataIndex];
+            return total > 0 && (value / total) > 0.05; 
+          }
+          return true;
+        },
+        font: {
+          weight: 'bold',
+          size: 11,
+        },
+        formatter: (value: any, context: any) => {
+          if (value === null || value === undefined) return '';
+          if (chartData.type === 'pie' || chartData.type === 'doughnut') {
+            const label = context.chart.data.labels?.[context.dataIndex] || '';
+            const dataset = context.chart.data.datasets[0];
+            const total = dataset.data.reduce((acc: number, val: number) => acc + (val || 0), 0);
+            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) + "%" : "0%";
+            return `${label}\n${percentage}`; 
+          }
+          return value;
+        },
+        textAlign: 'center' as const,
+        anchor: (context: any) => (chartData.type === 'bar' || chartData.type === 'line') ? 'end' : 'center',
+        align: (context: any) => (chartData.type === 'bar' || chartData.type === 'line') ? 'top' : 'center',
+        offset: 4,
+      };
+
+      const defaultPlugins = {
+        datalabels: defaultDatalabels,
+        legend: {
+          display: true,
+          position: 'top' as const,
+          labels: {
+            padding: 20,
+            font: { size: 12 }
+          }
+        },
+        title: {
+          display: !!chartData.options?.plugins?.title?.text,
+          text: chartData.options?.plugins?.title?.text,
+          font: { size: 16, weight: 'bold' },
+          padding: { bottom: 20 }
+        },
+        tooltip: {
+          padding: 12,
+          titleFont: { size: 14 },
+          bodyFont: { size: 14 },
+        },
+      };
+
+      // 2. สร้าง Chart
       // @ts-ignore
-      chartInstanceRef.current = new window.Chart(ctx, {
+      chartInstanceRef.current = new Chart(ctx, {
         type: chartData.type,
-        data: chartData.data,
+        data: clonedData,
+        plugins: ChartDataLabels ? [ChartDataLabels] : [],
         options: {
           responsive: true,
-          maintainAspectRatio: false, // ให้ canvas ยืดสูงตาม container
+          maintainAspectRatio: false,
           layout: {
-            padding: 8,
+            padding: {
+              top: 30,
+              bottom: 10,
+              left: 10,
+              right: 25
+            }
           },
-          plugins: {
-            legend: {
-              position: 'top',
-              labels: {
-                font: {
-                  size: 20,
+          scales: (chartData.type === 'pie' || chartData.type === 'doughnut') 
+            ? {} 
+            : {
+              x: {
+                ticks: {
+                  font: { size: 11 },
                 },
+                grid: { display: false },
+              },
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  font: { size: 11 },
+                },
+                grid: { color: 'rgba(0,0,0,0.05)' },
               },
             },
-            title: {
-              display: !!chartData.options?.plugins?.title?.text,
-              text: chartData.options?.plugins?.title?.text,
-              font: { size: 20 },
-            },
-            tooltip: {
-              titleFont: { size: 16 },
-              bodyFont: { size: 16 },
-              footerFont: { size: 16 },
-            },
-          },
-          interaction: {
-            intersect: false,
-            mode: 'index',
-          },
-          scales: {
-            x: {
-              ticks: {
-                maxRotation: 40,
-                minRotation: 0,
-                font: { size: 16 },
-              },
-              grid: { color: '#eee' },
-            },
-            y: {
-              ticks: {
-                font: { size: 16 },
-              },
-              grid: { color: '#eee' },
-              beginAtZero: true,
-            },
-          },
-          elements: chartData.type === 'line' ? { line: { borderCapStyle: 'round', borderJoinStyle: 'round' } } : undefined,
-          ...(chartData.options || {}), // อนุญาตให้ override จาก JSON
-        },
+          ...(chartData.options || {}), // อนุญาตให้ override top-level keys
+          plugins: {
+            ...defaultPlugins,
+            ...((chartData.options?.plugins) || {}),
+            datalabels: {
+              ...defaultDatalabels,
+              ...((chartData.options?.plugins?.datalabels) || {}),
+            }
+          }
+        } as any,
       });
     }
 
@@ -143,7 +218,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
 
   return (
     <div className="chart-container bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-200 my-4 w-full flex flex-col">
-      <div className="relative w-full h-100 md:h-64 lg:h-80">
+      <div className="relative w-full h-80 md:h-96 lg:h-[450px]">
         <canvas ref={canvasRef} className="w-full h-full" />
       </div>
     </div>

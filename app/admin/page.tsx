@@ -49,6 +49,7 @@ const AdminMenuPage = () => {
               .map((item: any) => ({
                 title: item.apa?.projectInfo?.titleThai || item.apa?.titleThai || item.meta?.file_name || 'ไม่ระบุชื่อเรื่อง',
                 abstract: item.apa?.abstract,
+                projectInfo: item.apa?.projectInfo,
                 file: item.meta?.file_name,
                 path: item.meta?.file_path || '/'
               }));
@@ -218,6 +219,14 @@ const AdminMenuPage = () => {
                         <span className="text-blue-600 font-semibold">"Abstract":</span>{" "}
                         <span className="text-gray-700 leading-relaxed text-justify">"{ref.abstract}"</span>,
                       </div>
+                      {ref.projectInfo && (
+                        <div className="mt-1">
+                          <span className="text-blue-600 font-semibold">"ProjectInfo":</span>
+                          <pre className="text-xs text-gray-600 bg-gray-100 p-2 rounded mt-1 overflow-x-auto whitespace-pre-wrap">
+                            {JSON.stringify(ref.projectInfo, null, 2)}
+                          </pre>
+                        </div>
+                      )}
                       <div>
                         <span className="text-blue-600 font-semibold">"Internal URL":</span>{" "}
                         <Link 

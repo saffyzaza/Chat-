@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { IoFolderOutline, IoDocumentOutline, IoEllipsisVertical, IoCreateOutline, IoTrashOutline, IoAddOutline, IoDownloadOutline, IoEyeOutline, IoCheckboxOutline, IoSquareOutline } from 'react-icons/io5';
+import { IoFolderOutline, IoDocumentOutline, IoEllipsisVertical, IoCreateOutline, IoTrashOutline, IoAddOutline, IoDownloadOutline, IoEyeOutline, IoCheckboxOutline, IoSquareOutline, IoReloadOutline } from 'react-icons/io5';
 
 interface FileItem {
   id: string;
@@ -16,9 +16,10 @@ interface FileManagerProps {
   refreshTrigger?: number;
   onFolderSelect?: (folderPath: string) => void;
   onUploadComplete?: (data: { fileName: string; apaData: any }) => void;
+  lastUploadData?: { fileName: string; apaData: any } | null;
 }
 
-export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }: FileManagerProps) {
+export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, lastUploadData }: FileManagerProps) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [currentPath, setCurrentPath] = useState('/');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -34,15 +35,27 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
   const [isApaModalOpen, setIsApaModalOpen] = useState(false);
   const [apaData, setApaData] = useState<any | null>(null);
   const [apaLoading, setApaLoading] = useState(false);
+  const [apaFile, setApaFile] = useState<FileItem | null>(null);
 
-  // เมื่อได้ APA data จาก FileUploader ให้แสดง modal
+  // เมื่อได้ APA data จาก FileUploader ให้แสดง modal อัตโนมัติ (Auto)
   useEffect(() => {
-    if (onUploadComplete) {
-      console.log('[FileManager] Received APA from upload:', onUploadComplete);
-      // onUploadComplete is a callback function, not an object
-      // Remove this effect or handle it differently in the parent component
+    if (lastUploadData && lastUploadData.fileName) {
+      console.log(`[FileManager] Auto-displaying APA for newly uploaded file: ${lastUploadData.fileName}`);
+      setApaData(lastUploadData.apaData || null);
+      setApaLoading(false);
+      
+      // สร้าง dummy FileItem เพื่อให้ปุ่ม Regenerate ทำงานได้ (ถ้ามีข้อมูลพอ)
+      setApaFile({
+        id: 'newly-uploaded',
+        name: lastUploadData.fileName,
+        type: 'file',
+        modifiedDate: new Date(),
+        path: currentPath
+      } as FileItem);
+      
+      setIsApaModalOpen(true);
     }
-  }, [onUploadComplete]);
+  }, [lastUploadData, currentPath]);
 
   // โหลดไฟล์จาก API
   useEffect(() => {
@@ -308,18 +321,72 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
   const handleShowApa = async (file: FileItem) => {
     setApaLoading(true);
     setApaData(null);
+    setApaFile(file);
     setIsApaModalOpen(true);
     try {
+      // 1. ลองดึงข้อมูลที่มีอยู่แล้ว
       const response = await fetch(`/api/files/apa?path=${encodeURIComponent(currentPath)}&name=${encodeURIComponent(file.name)}`);
+      
+      let existingApa = null;
       if (response.ok) {
         const data = await response.json();
-        setApaData(data.apa || null);
+        existingApa = data.apa;
+      }
+
+      // 2. ถ้าไม่มีข้อมูล หรือเป็น 404 ให้ส่งไป Generate ใหม่
+      if (!existingApa || response.status === 404) {
+        console.log('[FileManager] No APA data, triggering generation...');
+        setApaLoading(true);
+        const genResponse = await fetch('/api/files/apa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: currentPath,
+            name: file.name
+          })
+        });
+
+        if (genResponse.ok) {
+          const genData = await genResponse.json();
+          setApaData(genData.apa || null);
+        } else {
+          const errorData = await genResponse.json().catch(() => ({}));
+          setApaData({ error: `ไม่สามารถเข้าถึงฐานข้อมูล APA ได้: ${errorData.error || genResponse.statusText}` });
+        }
       } else {
-        setApaData({ error: 'ไม่พบข้อมูล APA สำหรับไฟล์นี้' });
+        setApaData(existingApa);
       }
     } catch (err) {
-      console.error('Error fetching APA:', err);
+      console.error('Error fetching/generating APA:', err);
       setApaData({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูล APA' });
+    } finally {
+      setApaLoading(false);
+    }
+  };
+
+  const handleRegenerateApa = async (file: FileItem) => {
+    setApaLoading(true);
+    setApaData(null);
+    try {
+      const genResponse = await fetch('/api/files/apa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: currentPath,
+          name: file.name
+        })
+      });
+
+      if (genResponse.ok) {
+        const genData = await genResponse.json();
+        setApaData(genData.apa || null);
+      } else {
+        const errorData = await genResponse.json().catch(() => ({}));
+        setApaData({ error: `ไม่สามารถสร้างข้อมูล APA ได้: ${errorData.error || genResponse.statusText}` });
+      }
+    } catch (err) {
+      console.error('Error regenerating APA:', err);
+      setApaData({ error: 'เกิดข้อผิดพลาดในการสร้างข้อมูล APA ใหม่' });
     } finally {
       setApaLoading(false);
     }
@@ -772,7 +839,7 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
             <div className="sticky top-0 bg-white px-6 py-4 flex justify-between items-center border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-700">📚 ข้อมูล APA</h3>
               <button
-                onClick={() => { setIsApaModalOpen(false); setApaData(null); }}
+                onClick={() => { setIsApaModalOpen(false); setApaData(null); setApaFile(null); }}
                 className="text-gray-400 hover:text-gray-600 p-2 rounded-lg transition-colors"
               >
                 ✕
@@ -780,18 +847,116 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete }
             </div>
             <div className="p-6">
               {apaLoading ? (
-                <p className="text-sm text-gray-600">กำลังโหลดข้อมูล APA...</p>
+                <div className="flex flex-col items-center justify-center py-12">
+                  <div className="w-12 h-12 border-4 border-blue-100 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+                  <p className="text-gray-600 font-medium">กำลังประมวลผลข้อมูลด้วย AI...</p>
+                  <p className="text-xs text-gray-400 mt-1">ขั้นตอนนี้อาจใช้เวลา 10-20 วินาที</p>
+                </div>
               ) : apaData ? (
-                <pre className="text-xs bg-gray-50 border border-gray-200 rounded-lg p-4 overflow-auto whitespace-pre-wrap break-words">
-{typeof apaData === 'string' ? apaData : JSON.stringify(apaData, null, 2)}
-                </pre>
+                <div className="space-y-6">
+                  {/* Abstract Section */}
+                  <div className="bg-blue-50/50 rounded-xl p-5 border border-blue-100">
+                    <h4 className="text-blue-800 font-bold mb-3 flex items-center gap-2">
+                       <span>📝</span> บทคัดย่อ (Abstract)
+                    </h4>
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                      {apaData.abstract || 'ไม่มีข้อมูลบทคัดย่อ'}
+                    </p>
+                  </div>
+
+                  {/* Project Info Section */}
+                  {apaData.projectInfo && (
+                    <div className="bg-orange-50/50 rounded-xl p-5 border border-orange-100">
+                      <h4 className="text-orange-800 font-bold mb-4 flex items-center gap-2">
+                         <span>📊</span> ข้อมูลโครงการ (Project Info)
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                          <p className="text-xs text-orange-600 font-bold uppercase">ชื่อโครงการ (ไทย)</p>
+                          <p className="text-sm text-gray-800 font-medium">{apaData.projectInfo.titleThai || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-orange-600 font-bold uppercase">Proposal Code</p>
+                          <p className="text-sm text-gray-800 font-medium">{apaData.projectInfo.proposalCode || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-orange-600 font-bold uppercase">คณะ/หน่วยงาน</p>
+                          <p className="text-sm text-gray-800 font-medium">{apaData.projectInfo.university || '-'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-orange-600 font-bold uppercase">งบประมาณ</p>
+                          <p className="text-sm text-gray-800 font-bold text-green-700">{apaData.projectInfo.totalBudget || '-'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Researchers & Keywords */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                        <h4 className="text-gray-800 font-bold mb-3 flex items-center gap-2">
+                          <span>👤</span> นักวิจัย (Researchers)
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {Array.isArray(apaData.researchers) && apaData.researchers.length > 0 ? (
+                            apaData.researchers.map((r: any, i: number) => (
+                              <span key={i} className="px-3 py-1 bg-white border border-gray-200 rounded-full text-xs text-gray-700 shadow-sm">
+                                {typeof r === 'string' ? r : r.name || JSON.stringify(r)}
+                              </span>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-500 italic">ไม่พบรายชื่อนักวิจัย</p>
+                          )}
+                        </div>
+                     </div>
+                     <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                        <h4 className="text-gray-800 font-bold mb-3 flex items-center gap-2">
+                          <span>🏷️</span> คำสำคัญ (Keywords)
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {apaData.keywords?.thai?.length > 0 ? (
+                            apaData.keywords.thai.map((k: string, i: number) => (
+                              <span key={i} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                                {k}
+                              </span>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-500 italic">ไม่มีข้อมูลคำสำคัญ</p>
+                          )}
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Raw Data (Degub) */}
+                  <details className="mt-4">
+                    <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 transition-colors">
+                      ดูข้อมูลดิบ (Raw JSON)
+                    </summary>
+                    <pre className="mt-2 text-[10px] bg-gray-900 text-green-400 p-4 rounded-lg overflow-auto max-h-40 font-mono">
+                      {JSON.stringify(apaData, null, 2)}
+                    </pre>
+                  </details>
+                </div>
               ) : (
-                <p className="text-sm text-gray-600">ไม่มีข้อมูล APA</p>
+                <div className="text-center py-12">
+                  <span className="text-4xl mb-4 block">🔍</span>
+                  <p className="text-gray-600">ไม่มีข้อมูล APA สำหรับไฟล์นี้</p>
+                </div>
               )}
             </div>
-            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end">
+            <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-2">
+              {apaFile && (
+                <button
+                  onClick={() => handleRegenerateApa(apaFile)}
+                  disabled={apaLoading}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 font-medium disabled:opacity-50 flex items-center gap-2"
+                >
+                  <IoReloadOutline size={18} className={apaLoading ? 'animate-spin' : ''} />
+                  สร้างใหม่ (Regenerate)
+                </button>
+              )}
               <button
-                onClick={() => { setIsApaModalOpen(false); setApaData(null); }}
+                onClick={() => { setIsApaModalOpen(false); setApaData(null); setApaFile(null); }}
                 className="px-6 py-2 bg-gray-200 text-gray-700 rounded-full hover:bg-gray-300 font-medium"
               >
                 ปิด

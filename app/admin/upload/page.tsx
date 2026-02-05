@@ -128,6 +128,7 @@ export default function AdminPage() {
               refreshTrigger={refreshTrigger} 
               onFolderSelect={handleFolderSelect}
               onUploadComplete={handleUploadComplete}
+              lastUploadData={lastUploadData}
             />
           </div>
         </div>
