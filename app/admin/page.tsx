@@ -9,7 +9,8 @@ import {
   HiOutlineUpload,
   HiOutlineArrowLeft,
   HiOutlineDesktopComputer,
-  HiOutlineBookOpen
+  HiOutlineBookOpen,
+  HiOutlineTable
 } from 'react-icons/hi';
 
 const AdminMenuPage = () => {
@@ -102,6 +103,15 @@ const AdminMenuPage = () => {
       color: 'bg-purple-500',
       borderColor: 'border-purple-100',
       hoverColor: 'hover:border-purple-400'
+    },
+    {
+      title: 'นำเข้า CSV เข้าฐานข้อมูล',
+      description: 'อัปโหลดไฟล์ CSV เพื่อบันทึกข้อมูลลงตารางในฐานข้อมูล',
+      icon: <HiOutlineTable className="w-8 h-8" />,
+      href: '/admin/csv-import',
+      color: 'bg-amber-500',
+      borderColor: 'border-amber-100',
+      hoverColor: 'hover:border-amber-400'
     },
   ];
 
