@@ -20,11 +20,65 @@ async function ensureAdmin(userId: number) {
   if (role !== 'admin') throw new Error('FORBIDDEN');
 }
 
+function shouldIncludeWeather(message: string) {
+  return /(อากาศ|พยากรณ์|พยากรณ์อากาศ|ฝน|ลม|อุณหภูมิ|ความชื้น|weather|forecast|temperature|rain|humidity)/i.test(
+    message
+  );
+}
+
+const dailyWeatherPrompt = `บทบาท: ผู้ช่วยสรุปสภาพอากาศรายวัน
+เป้าหมาย: สรุปพยากรณ์อากาศรายวันแบบกระชับ อ่านง่าย และเน้นประเด็นสำคัญ
+แนวทาง:
+- ใช้ข้อมูลพยากรณ์ที่มีให้เท่านั้น ห้ามแต่งเพิ่ม
+- ระบุวันและช่วงอุณหภูมิ (ต่ำสุด-สูงสุด)
+- ระบุโอกาสฝน (%), สภาพอากาศ, ความชื้น, ความเร็วลม
+- ถ้ามีหลายตำบล ให้สรุปภาพรวมก่อน แล้วค่อยแยกตามตำบล
+- ถ้าข้อมูลขาดหาย ให้ระบุว่าไม่ครบถ้วน
+รูปแบบผลลัพธ์:
+1) ภาพรวมวันนี้ (ถ้ามีข้อมูล)
+2) ตาราง/ลิสต์รายวัน 7 วัน
+3) หมายเหตุ (ถ้ามี)
+ภาษา: ไทย`;
+
+async function fetchWeatherContext(
+  request: NextRequest,
+  province?: string,
+  district?: string,
+  days?: number
+) {
+  const url = new URL('/api/weather', request.nextUrl.origin);
+  if (province) url.searchParams.set('province', province);
+  if (district) url.searchParams.set('district', district);
+  if (typeof days === 'number' && !Number.isNaN(days)) {
+    url.searchParams.set('days', String(days));
+  }
+
+  try {
+    const response = await fetch(url.toString(), { cache: 'no-store' });
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: `Weather API error: ${response.status}`,
+      };
+    }
+    const data = await response.json();
+    return { ok: true, data };
+  } catch (error: any) {
+    return {
+      ok: false,
+      error: error?.message || 'Weather API fetch failed',
+    };
+  }
+}
+
 export const POST = withAuth(async (req: NextRequest, user) => {
   try {
     await ensureAdmin(user.id);
     const body = await req.json().catch(() => ({}));
     const message = String(body?.message || '').trim();
+    const province = body?.province ? String(body.province).trim() : undefined;
+    const district = body?.district ? String(body.district).trim() : undefined;
+    const days = body?.days !== undefined ? Number(body.days) : undefined;
 
     if (!message) {
       return NextResponse.json({ message: 'กรุณาระบุข้อความ' }, { status: 400 });
@@ -97,7 +151,8 @@ ${accidentSchema}
 คำแนะนำ:
 - ใช้ชื่อคอลัมน์ตามโครงสร้างข้างต้นเท่านั้น
 - ถ้าไม่ทราบชื่อคอลัมน์ให้ถามกลับ
-- กรองวันที่แบบ YYYY-MM-DD (เช่น accident_date >= '2023-01-01')
+- ถ้าต้องกรองวันที่ ให้ใช้ DATE 'YYYY-MM-DD' หรือ TIMESTAMP 'YYYY-MM-DD HH:MI:SS' เพื่อเลี่ยงการเทียบ timestamp กับ text
+- หลีกเลี่ยง to_date กับคอลัมน์ประเภท timestamp; หากต้องตัดวันที่ให้ใช้ ::date หรือ DATE(timestamp_column)
 - หลีกเลี่ยง SELECT * ยกเว้นผู้ใช้ขอโดยตรง
 - ใช้ WHERE, GROUP BY, ORDER BY ตามความเหมาะสม`;
 
@@ -135,8 +190,19 @@ ${accidentSchema}
     const rows = queryRes.rows || [];
     const preview = rows.slice(0, 200);
 
+    let weatherContext = '';
+    if (shouldIncludeWeather(message)) {
+      const weatherResult = await fetchWeatherContext(req, province, district, days);
+      if (weatherResult.ok) {
+        weatherContext = `\n\nข้อมูลพยากรณ์อากาศ (จาก /api/weather):\n${JSON.stringify(weatherResult.data)}`;
+      } else {
+        weatherContext = `\n\nไม่สามารถดึงข้อมูลพยากรณ์อากาศได้: ${weatherResult.error}`;
+      }
+    }
+
     const analyzeSystem = 'คุณเป็นผู้ช่วยวิเคราะห์ข้อมูลอุบัติเหตุ ให้สรุปผลตามคำถามอย่างกระชับ ชี้ประเด็นสำคัญ และตอบเป็นภาษาไทย';
-    const analyzePrompt = `${analyzeSystem}\n\nคำถามผู้ใช้: ${message}\n\nผลลัพธ์จากฐานข้อมูล (ตัวอย่างไม่เกิน 200 แถว):\n${JSON.stringify(preview)}`;
+    const weatherSystem = 'หากมีข้อมูลพยากรณ์อากาศ ให้ใช้ประกอบการวิเคราะห์อย่างเหมาะสม และชี้ภาพรวมสภาพอากาศปัจจุบันจากข้อมูลล่าสุดก่อนสรุปเฉพาะประเด็นที่เกี่ยวข้องกับคำถาม';
+    const analyzePrompt = `${analyzeSystem}\n${weatherContext ? `\n${weatherSystem}` : ''}\n\nคำถามผู้ใช้: ${message}\n\nผลลัพธ์จากฐานข้อมูล (ตัวอย่างไม่เกิน 200 แถว):\n${JSON.stringify(preview)}${weatherContext}`;
     const analyzeResult = await model.generateContent(analyzePrompt);
     const analysis = analyzeResult.response?.text?.() || '';
 
