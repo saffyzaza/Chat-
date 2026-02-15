@@ -23,7 +23,8 @@ import {
   ExternalHyperlink,
 } from 'docx';
 import { saveAs } from 'file-saver';
-import { FiDownload, FiX } from 'react-icons/fi';
+import { FiDownload, FiX, FiImage } from 'react-icons/fi';
+import html2canvas from 'html2canvas';
 import { ChartRenderer } from './ChartRenderer';
 import { TableRenderer } from './TableRenderer';
 
@@ -260,16 +261,21 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
         let chartContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
-          chartContent += lines[i];
+          chartContent += lines[i] + '\n';
           i++;
         }
         try {
-          const chartData = JSON.parse(chartContent);
+          // Remove comments safely (preserving URLs like http://)
+          const cleanJson = chartContent
+            .replace(/("([^"\\]*(\\.[^"\\]*)*)")|(\/\/.*$)|(\/\*[\s\S]*?\*\/)/gm, (m, p1) => p1 || '')
+            .replace(/,(\s*[\]}])/g, '$1')
+            .trim();
+          const chartData = JSON.parse(cleanJson);
           docChildren.push(
             new Paragraph({
               children: [
                 new TextRun({
-                  text: `[📊 กราฟแสดงผล: ${chartData.options?.plugins?.title?.text || chartData.type || 'ข้อมูลสถิติ'}]`,
+                  text: `[📊 กราฟแสดงผล: ${chartData.options?.plugins?.title?.text || chartData.title || chartData.type || 'ข้อมูลสถิติ'}]`,
                   bold: true,
                   color: '1A5F7A',
                   font: DOC_CONFIG.font,
@@ -291,13 +297,13 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
         let tableJsonContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
-          tableJsonContent += lines[i];
+          tableJsonContent += lines[i] + '\n';
           i++;
         }
         try {
+          // Remove comments safely (preserving URLs like http://)
           const cleanJson = tableJsonContent
-            .replace(/\/\/.*$/gm, '')
-            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/("([^"\\]*(\\.[^"\\]*)*)")|(\/\/.*$)|(\/\*[\s\S]*?\*\/)/gm, (m, p1) => p1 || '')
             .replace(/,(\s*[\]}])/g, '$1')
             .trim();
           const tableData = JSON.parse(cleanJson);
@@ -646,12 +652,15 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             // Pre-process markdown to fix common table rendering issues
             let processedContent = pageContent
               .trim()
-              // 1. Ensure blank line before tables (some parsers need it)
+              // 1. Remove <thought> tags that AI might generate
+              .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
+              .replace(/<\/?thought[^>]*>/gi, '')
+              // 2. Ensure blank line before tables (some parsers need it)
               .replace(/([^\n])\n\|/g, '$1\n\n|')
-              // 2. Fix literal <br> tags anywhere - convert to spaces or actual newlines depending on context
+              // 3. Fix literal <br> tags anywhere - convert to spaces or actual newlines depending on context
               // Inside tables, <br> breaks standard markdown. Let's replace them with a space for integrity.
               .replace(/<br\s*\/?>/gi, ' ')
-              // 3. Fix broken markdown links across lines [text](url1\nurl2)
+              // 4. Fix broken markdown links across lines [text](url1\nurl2)
               .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
                 const cleanUrl = url.replace(/\s+/g, '');
                 return `[${text}](${cleanUrl})`;

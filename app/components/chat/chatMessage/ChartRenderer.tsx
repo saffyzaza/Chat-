@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FiDownload } from 'react-icons/fi';
 
 interface ChartRendererProps {
   chartData: {
     type: 'bar' | 'line' | 'pie' | 'doughnut';
+    title?: string;
     data: {
       labels: string[];
       datasets: Array<{
@@ -22,6 +24,42 @@ interface ChartRendererProps {
 export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<any>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // ฟังก์ชันสำหรับ export รูปกราฟ
+  const handleExportImage = async () => {
+    if (!canvasRef.current || !chartInstanceRef.current) return;
+    
+    setIsExporting(true);
+    try {
+      // รอให้กราฟเรนเดอร์เสร็จสมบูรณ์
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // แปลง canvas เป็น blob
+      const canvas = canvasRef.current;
+      canvas.toBlob((blob) => {
+        if (blob) {
+          // สร้างชื่อไฟล์จากชื่อกราฟหรือใช้ค่าเริ่มต้น
+          const title = chartData.title || chartData.options?.plugins?.title?.text || 'chart';
+          const filename = `${title.replace(/[^a-zA-Z0-9ก-๙\s]/g, '_')}_${Date.now()}.png`;
+          
+          // ดาวน์โหลดไฟล์
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+        setIsExporting(false);
+      }, 'image/png', 1.0);
+    } catch (error) {
+      console.error('Error exporting chart:', error);
+      setIsExporting(false);
+    }
+  };
 
   // สร้าง gradient สีอ่อนสำหรับเติมใต้เส้นกราฟ
   const createLineGradient = (ctx: CanvasRenderingContext2D, baseColor: string) => {
@@ -218,6 +256,19 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
 
   return (
     <div className="chart-container bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-200 my-4 w-full flex flex-col">
+      {/* ปุ่ม Export */}
+      <div className="flex justify-end mb-3">
+        <button
+          onClick={handleExportImage}
+          disabled={isExporting}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          title="ดาวน์โหลดกราฟเป็นรูปภาพ"
+        >
+          <FiDownload className="w-4 h-4" />
+          {isExporting ? 'กำลังส่งออก...' : 'ส่งออกรูปภาพ'}
+        </button>
+      </div>
+      
       <div className="relative w-full h-80 md:h-96 lg:h-[450px]">
         <canvas ref={canvasRef} className="w-full h-full" />
       </div>

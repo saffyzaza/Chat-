@@ -15,11 +15,13 @@ interface MarkdownProps {
 }
 
 const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }: MarkdownProps) => {
-  // ลบแท็ก wrapper ที่ไม่รองรับ เช่น <markdown> หรือ <md> เพื่อหลีกเลี่ยง React error
+  // ลบแท็ก wrapper ที่ไม่รองรับ เช่น <markdown> หรือ <md> หรือ <thought> เพื่อหลีกเลี่ยง React error
   const sanitized = typeof children === 'string'
     ? children
         .replace(/<\/?markdown[^>]*>/gi, '')
         .replace(/<\/?md[^>]*>/gi, '')
+        .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
+        .replace(/<\/?thought[^>]*>/gi, '')
         .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
           const cleanUrl = url.replace(/\s+/g, '');
           return `[${text}](${cleanUrl})`;

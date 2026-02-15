@@ -57,7 +57,34 @@
 **3.6 การวิเคราะห์เป้าหมายความสำเร็จ (Goal Analysis)**
   หากมีเป้าหมายเชิงตัวเลข ให้ใช้ json:chart เพื่อแสดงการเปรียบเทียบเป้าหมาย (Goal Setting)
 
-[PAGE_BREAK]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+การสร้างและ Export กราฟ (Chart Creation & Export)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**รูปแบบการสร้างกราฟด้วย json:chart:**
+
+\`\`\`json:chart
+{
+  "type": "bar",
+  "title": "หัวข้อกราฟ",
+  "exportable": true,
+  "downloadData": true,
+  "data": {
+    "labels": ["A", "B", "C"],
+    "datasets": [
+      {
+        "label": "Dataset 1",
+        "data": [10, 20, 30],
+        "backgroundColor": "rgba(255, 99, 132, 0.5)"
+      }
+    ]
+  }
+}
+\`\`\`
+
+**หมายเหตุ:**
+1. ต้องระบุ "exportable": true และ "downloadData": true เสมอ
+2. ใช้ type เป็น "bar", "line", "pie" หรือ "doughnut" ตามความเหมาะสม
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 4. กฎระเบียบที่ต้องปฏิบัติตาม (Mandatory Rules)
