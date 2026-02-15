@@ -10,7 +10,8 @@ import {
   HiOutlineArrowLeft,
   HiOutlineDesktopComputer,
   HiOutlineBookOpen,
-  HiOutlineTable
+  HiOutlineTable,
+  HiOutlineChatAlt2
 } from 'react-icons/hi';
 
 const AdminMenuPage = () => {
@@ -51,6 +52,7 @@ const AdminMenuPage = () => {
                 title: item.apa?.projectInfo?.titleThai || item.apa?.titleThai || item.meta?.file_name || 'ไม่ระบุชื่อเรื่อง',
                 abstract: item.apa?.abstract,
                 projectInfo: item.apa?.projectInfo,
+                researchers: Array.isArray(item.apa?.researchers) ? item.apa.researchers : [],
                 file: item.meta?.file_name,
                 path: item.meta?.file_path || '/'
               }));
@@ -112,6 +114,15 @@ const AdminMenuPage = () => {
       color: 'bg-amber-500',
       borderColor: 'border-amber-100',
       hoverColor: 'hover:border-amber-400'
+    },
+    {
+      title: 'แชทสภาพอากาศ',
+      description: 'ถาม-ตอบข้อมูลสภาพอากาศรายพื้นที่ด้วยผู้ช่วยแชท',
+      icon: <HiOutlineChatAlt2 className="w-8 h-8" />,
+      href: '/admin/chatweather',
+      color: 'bg-cyan-500',
+      borderColor: 'border-cyan-100',
+      hoverColor: 'hover:border-cyan-400'
     },
   ];
 
@@ -237,6 +248,12 @@ const AdminMenuPage = () => {
                           </pre>
                         </div>
                       )}
+                      <div className="mt-1">
+                        <span className="text-blue-600 font-semibold">"researchers":</span>
+                        <pre className="text-xs text-gray-600 bg-gray-100 p-2 rounded mt-1 overflow-x-auto whitespace-pre-wrap">
+                          {JSON.stringify(ref.researchers ?? [], null, 2)}
+                        </pre>
+                      </div>
                       <div>
                         <span className="text-blue-600 font-semibold">"Internal URL":</span>{" "}
                         <Link 

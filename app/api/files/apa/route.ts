@@ -30,6 +30,31 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+const MIN_TEXT_LENGTH_SKIP_VISION = parseInt(process.env.APA_MIN_TEXT_LENGTH_SKIP_VISION || '1200', 10);
+const MAX_MODEL_CONTENT_CHARS = parseInt(process.env.APA_MAX_MODEL_CONTENT_CHARS || '12000', 10);
+const ENABLE_VISION_FOR_PDF = (process.env.APA_ENABLE_VISION_FOR_PDF || 'false').toLowerCase() === 'true';
+const EMPTY_APA_SCHEMA = {
+  abstract: null,
+  keywords: {
+    thai: [],
+    english: []
+  },
+  references: [],
+  projectInfo: {
+    titleThai: null,
+    titleEnglish: null,
+    proposalCode: null,
+    budgetYear: null,
+    university: null,
+    projectCode: null,
+    totalBudget: null,
+    otherInfo: null
+  },
+  researchers: [],
+  documentType: '',
+  additionalInfo: null
+};
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -37,7 +62,7 @@ export async function GET(request: NextRequest) {
     const filePath = searchParams.get('path');
 
     // ถ้าไม่มีพารามิเตอร์ ให้คืนค่าทั้งหมดที่มีในฐานข้อมูล
-    if (!fileName || !filePath) {
+    if (!fileName && !filePath) {
       const allQuery = `
         SELECT apa_json, file_name, file_path, mime_type, size_bytes, created_at
         FROM file_apa_metadata
@@ -58,6 +83,35 @@ export async function GET(request: NextRequest) {
           }
         }))
       });
+    }
+
+    // ถ้าระบุเฉพาะ path ให้คืนรายการ APA ในโฟลเดอร์นั้น (ใช้สำหรับทำ status icon)
+    if (!fileName && filePath) {
+      const byPathQuery = `
+        SELECT apa_json, file_name, file_path, mime_type, size_bytes, created_at
+        FROM file_apa_metadata
+        WHERE file_path = $1
+        ORDER BY created_at DESC
+      `;
+      const byPathResult = await pool.query(byPathQuery, [filePath]);
+      return NextResponse.json({
+        success: true,
+        count: byPathResult.rows.length,
+        references: byPathResult.rows.map(row => ({
+          apa: row.apa_json,
+          meta: {
+            file_name: row.file_name,
+            file_path: row.file_path,
+            mime_type: row.mime_type,
+            size_bytes: row.size_bytes,
+            created_at: row.created_at,
+          }
+        }))
+      });
+    }
+
+    if (fileName && !filePath) {
+      return NextResponse.json({ error: 'Missing parameter: path required when name is provided' }, { status: 400 });
     }
 
     const query = `
@@ -102,6 +156,7 @@ export async function POST(request: NextRequest) {
     console.log('[APA POST] Body received:', body);
     const fileName: string = body?.name;
     const filePath: string = body?.path;
+    const forceVision: boolean = body?.forceVision === true;
 
     console.log(`[APA POST] Received: fileName="${fileName}", filePath="${filePath}"`);
 
@@ -134,6 +189,12 @@ export async function POST(request: NextRequest) {
     const isPdf = lowerName.endsWith('.pdf');
     const isDocx = lowerName.endsWith('.docx');
     const isTextLike = lowerName.endsWith('.txt') || lowerName.endsWith('.md') || lowerName.endsWith('.json');
+    const isImage =
+      lowerName.endsWith('.jpg') ||
+      lowerName.endsWith('.jpeg') ||
+      lowerName.endsWith('.png') ||
+      lowerName.endsWith('.gif') ||
+      lowerName.endsWith('.webp');
 
     console.log(`[APA POST] File type detection: isPdf=${isPdf}, isDocx=${isDocx}, isTextLike=${isTextLike}`);
 
@@ -169,8 +230,22 @@ export async function POST(request: NextRequest) {
       textContent = null;
     }
 
-    // Always try Vision API if text extraction failed OR if it's a PDF (force for all PDFs)
-    const shouldTryVision = (!textContent || textContent.trim().length === 0) || isPdf;
+    // Vision policy (เน้นความเร็ว):
+    // - รูปภาพ: ใช้ Vision ได้ตามปกติ
+    // - PDF: ปิด Vision เป็นค่าเริ่มต้น (เปิดได้ด้วย env หรือ forceVision)
+    // - อื่นๆ: ใช้ Vision เมื่อข้อความน้อยเกิน threshold
+    const textLength = textContent?.trim().length || 0;
+    const hasEnoughText = textLength >= MIN_TEXT_LENGTH_SKIP_VISION;
+    const shouldTryVision =
+      forceVision ||
+      isImage ||
+      (!hasEnoughText && (!isPdf || ENABLE_VISION_FOR_PDF || textLength === 0));
+
+    if (!shouldTryVision) {
+      console.log(
+        `[APA POST] Skipping Vision API: forceVision=${forceVision}, isImage=${isImage}, isPdf=${isPdf}, textLength=${textLength}, enableVisionForPdf=${ENABLE_VISION_FOR_PDF}`
+      );
+    }
     
     if (shouldTryVision) {
       const genAIKey = process.env.NEXT_PUBLIC_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY;
@@ -227,6 +302,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ถ้ายังไม่มีข้อความหลัง extraction + vision ให้ตอบเร็วโดยไม่เรียก LLM ต่อ
+    if (!textContent || textContent.trim().length === 0) {
+      console.warn(`[APA POST] No extractable text after all methods for ${fileName}, skip LLM generation.`);
+
+      const fallbackApa = {
+        ...EMPTY_APA_SCHEMA,
+        additionalInfo: 'ไม่สามารถสกัดข้อความจากไฟล์นี้ได้ (อาจเป็นไฟล์สแกนหรือไฟล์ภาพคุณภาพต่ำ)'
+      };
+
+      try {
+        await pool.query(
+          `DELETE FROM file_apa_metadata WHERE file_name = $1 AND file_path = $2`,
+          [fileName, filePath]
+        );
+        await pool.query(
+          `INSERT INTO file_apa_metadata (file_name, file_path, mime_type, size_bytes, apa_json, created_at)
+           VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
+          [fileName, filePath, isPdf ? 'application/pdf' : isDocx ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'text/plain', buffer.length, JSON.stringify(fallbackApa)]
+        );
+      } catch (dbErr: any) {
+        console.error('Database insert fallback error:', dbErr);
+        return NextResponse.json({ error: `Database error: ${dbErr.message}` }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        apa: fallbackApa,
+        debugInfo: {
+          fileName,
+          fileType: isPdf ? 'PDF' : isDocx ? 'DOCX' : isTextLike ? 'TEXT' : 'OTHER',
+          textExtractedLength: 0,
+          extractionMethod,
+          hasContent: false,
+          forceVision,
+          enableVisionForPdf: ENABLE_VISION_FOR_PDF,
+          skippedLlm: true
+        }
+      });
+    }
+
     console.log(`[APA POST] File: ${fileName}, Type: ${isPdf ? 'PDF' : isDocx ? 'DOCX' : isTextLike ? 'TEXT' : 'OTHER'}, Method: ${extractionMethod}, Length: ${textContent?.length || 0}`);
     if (!textContent || textContent.trim().length === 0) {
       console.warn(`[APA POST] WARNING: No text extracted from ${fileName} by any method.`);
@@ -251,7 +366,7 @@ TASK
 ใช้เฉพาะข้อมูลที่ปรากฏในเอกสารจริงเท่านั้น
 
 STRICT RULES (สำคัญมาก)
-1. บทคัดย่อ (abstract) ต้องเป็นข้อความที่ปรากฏในเอกสารจริงเท่านั้น abstract ต้อง 1000 คำขึ้นไป
+1. บทคัดย่อ (abstract) ต้องเป็นข้อความที่ปรากฏในเอกสารจริงเท่านั้น
 2. ห้ามแต่ง ห้ามสรุป ห้ามเรียบเรียงใหม่ ห้ามอนุมาน
 3. หากพบบทคัดย่อ ให้คัดลอกข้อความเต็ม (รวมคำว่า "บทคัดย่อ")
 4. หากไม่พบบทคัดย่อ ให้ใส่ค่า null
@@ -300,7 +415,7 @@ OUTPUT SCHEMA (ต้องตรงทุก field)
 `;
       const basePrompt = `You are an expert researcher analyzing a document. Your task is to EXTRACT ALL INFORMATION COMPLETELY AND ACCURATELY. ${schemaDescription}`;
       const contentForModel = textContent && textContent.trim().length > 0
-        ? `File: ${fileName}\nContent:\n${textContent.substring(0, 20000)}`
+        ? `File: ${fileName}\nContent:\n${textContent.substring(0, MAX_MODEL_CONTENT_CHARS)}`
         : `File: ${fileName}\nNo readable text could be extracted. If you can infer the document type from the filename, provide basic metadata. Filename: ${fileName}`;
 
       const result = await model.generateContent(`${basePrompt}\n\n${contentForModel}`);
@@ -344,7 +459,9 @@ OUTPUT SCHEMA (ต้องตรงทุก field)
         fileType: isPdf ? 'PDF' : isDocx ? 'DOCX' : isTextLike ? 'TEXT' : 'OTHER',
         textExtractedLength: textContent?.length || 0,
         extractionMethod: extractionMethod,
-        hasContent: textContent && textContent.trim().length > 0
+        hasContent: textContent && textContent.trim().length > 0,
+        forceVision,
+        enableVisionForPdf: ENABLE_VISION_FOR_PDF
       }
     });
   } catch (error: any) {

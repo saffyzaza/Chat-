@@ -1,7 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// ข้อมูลจังหวัด อำเภอ และตำบล พร้อมพิกัด
-const PROVINCES = [
+type Subdistrict = {
+  name: string;
+  lat: number;
+  lon: number;
+};
+
+type District = {
+  name: string;
+  subdistricts: Subdistrict[];
+};
+
+type Province = {
+  name: string;
+  districts: District[];
+};
+
+const PROVINCES: Province[] = [
   {
     name: 'เชียงใหม่',
     districts: [
@@ -117,40 +132,6 @@ const PROVINCES = [
   }
 ];
 
-// ฟังก์ชันเรียก Open-Meteo API พร้อมระบบ Retry และ Timeout
-async function fetchWeatherFromOpenMeteo(lat: number, lon: number, days: number = 7, retries = 2) {
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,wind_speed_10m_max,relative_humidity_2m_max&forecast_days=${days}&timezone=Asia/Bangkok`;
-  
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout
-
-      const response = await fetch(url, { 
-        cache: 'no-store',
-        signal: controller.signal 
-      });
-      
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      return await response.json();
-    } catch (error: any) {
-      if (i === retries) {
-        console.error(`Final error fetching from Open-Meteo after ${retries} retries:`, error.message || error);
-        return null;
-      }
-      console.warn(`Retry ${i + 1}/${retries} failed: ${error.message || 'Connection error'}. Retrying...`);
-      // รอซักพักก่อน retry (Exponential backoff)
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-    }
-  }
-}
-
-// ฟังก์ชันแปลง weather code เป็นสภาพอากาศภาษาไทย
 function getWeatherCondition(code: number): string {
   if (code === 0) return 'ท้องฟ้าแจ่มใส';
   if (code <= 3) return 'มีเมฆบางส่วน';
@@ -165,155 +146,115 @@ function getWeatherCondition(code: number): string {
   return 'ไม่ทราบสภาพอากาศ';
 }
 
-// ฟังก์ชันสร้างข้อมูลพยากรณ์อากาศจาก Open-Meteo API
-async function generateWeatherForecast(subdistrictName: string, lat: number, lon: number, days: number = 7) {
-  try {
-    const weatherData = await fetchWeatherFromOpenMeteo(lat, lon, days);
-    
-    if (!weatherData || !weatherData.daily) {
-      console.warn(`Weather API failed for ${subdistrictName}, using fallback data.`);
-      return { 
-        isFallback: true, 
-        forecasts: generateFallbackForecast(subdistrictName, days) 
-      };
-    }
-    
-    const forecasts = [];
-    const daily = weatherData.daily;
-    
-    for (let i = 0; i < days && i < daily.time.length; i++) {
-      const date = new Date(daily.time[i]);
-      
-      forecasts.push({
-        date: daily.time[i],
-        dayName: ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'][date.getDay()],
-        rainChance: daily.precipitation_probability_max?.[i] || 0,
-        condition: getWeatherCondition(daily.weathercode?.[i] || 0),
-        minTemp: Math.round(daily.temperature_2m_min?.[i] || 20),
-        maxTemp: Math.round(daily.temperature_2m_max?.[i] || 30),
-        humidity: Math.round(daily.relative_humidity_2m_max?.[i] || 70),
-        windSpeed: Math.round(daily.wind_speed_10m_max?.[i] || 10)
-      });
-    }
-    
-    return { isFallback: false, forecasts };
-  } catch (err) {
-    console.error(`Unexpected error in generateWeatherForecast for ${subdistrictName}:`, err);
-    return { 
-      isFallback: true, 
-      forecasts: generateFallbackForecast(subdistrictName, days) 
-    };
-  }
+async function fetchOpenMeteoForecast(lat: number, lon: number, days: number) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode,wind_speed_10m_max,relative_humidity_2m_max&forecast_days=${days}&timezone=Asia/Bangkok`;
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Open-Meteo error: ${response.status}`);
+  return response.json();
 }
 
-// ฟังก์ชันสร้างข้อมูลสำรอง (กรณี API ล้มเหลว)
-function generateFallbackForecast(subdistrictName: string, days: number = 7) {
-  const forecasts = [];
-  const today = new Date();
-  
-  for (let i = 0; i < days; i++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() + i);
-    
-    const rainChance = Math.floor(Math.random() * 100);
-    
-    let condition = 'แจ่มใส';
-    if (rainChance > 70) condition = 'ฝนตกหนัก';
-    else if (rainChance > 50) condition = 'ฝนตก';
-    else if (rainChance > 30) condition = 'มีเมฆมาก';
-    else if (rainChance > 10) condition = 'มีเมฆบางส่วน';
-    
-    const minTemp = 22 + Math.floor(Math.random() * 5);
-    const maxTemp = minTemp + 8 + Math.floor(Math.random() * 5);
-    
-    forecasts.push({
-      date: date.toISOString().split('T')[0],
+function toForecastRows(daily: any, days: number) {
+  const maxLength = Math.min(days, Array.isArray(daily?.time) ? daily.time.length : 0);
+  const rows: any[] = [];
+
+  for (let i = 0; i < maxLength; i++) {
+    const date = new Date(daily.time[i]);
+    rows.push({
+      date: daily.time[i],
       dayName: ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'][date.getDay()],
-      rainChance: rainChance,
-      condition: condition,
-      minTemp: minTemp,
-      maxTemp: maxTemp,
-      humidity: 60 + Math.floor(Math.random() * 30),
-      windSpeed: 5 + Math.floor(Math.random() * 15)
+      rainChance: Number(daily?.precipitation_probability_max?.[i] ?? 0),
+      condition: getWeatherCondition(Number(daily?.weathercode?.[i] ?? 0)),
+      minTemp: Math.round(Number(daily?.temperature_2m_min?.[i] ?? 0)),
+      maxTemp: Math.round(Number(daily?.temperature_2m_max?.[i] ?? 0)),
+      humidity: Math.round(Number(daily?.relative_humidity_2m_max?.[i] ?? 0)),
+      windSpeed: Math.round(Number(daily?.wind_speed_10m_max?.[i] ?? 0))
     });
   }
-  
-  return forecasts;
+
+  return rows;
 }
 
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const province = searchParams.get('province');
-    const district = searchParams.get('district');
-    let days = parseInt(searchParams.get('days') || '7');
-    
-    // ตรวจสอบความถูกต้องของจำนวนวัน
-    if (isNaN(days) || days < 1) days = 7;
-    if (days > 14) days = 14; // จำกัดสูงสุดที่ 14 วันตามมาตรฐาน API พยากรณ์
+    const provinceName = searchParams.get('province') || '';
+    const districtName = searchParams.get('district') || '';
+    const metadataOnly = (searchParams.get('metadataOnly') || 'false').toLowerCase() === 'true';
 
-    // ถ้าไม่ระบุจังหวัด ให้ส่งรายการจังหวัดทั้งหมด
+    let days = parseInt(searchParams.get('days') || '7', 10);
+    if (Number.isNaN(days) || days < 1) days = 7;
+    if (days > 14) days = 14;
+
+    if (!provinceName) {
+      return NextResponse.json({
+        success: true,
+        provinces: PROVINCES.map((province) => province.name)
+      });
+    }
+
+    const province = PROVINCES.find((item) => item.name === provinceName);
     if (!province) {
+      return NextResponse.json({ success: false, message: 'ไม่พบจังหวัดที่ระบุ' }, { status: 404 });
+    }
+
+    if (!districtName) {
       return NextResponse.json({
         success: true,
-        provinces: PROVINCES.map(p => p.name)
+        province: province.name,
+        districts: province.districts.map((district) => district.name)
       });
     }
 
-    // หาจังหวัดที่เลือก
-    const selectedProvince = PROVINCES.find(p => p.name === province);
-    if (!selectedProvince) {
-      return NextResponse.json(
-        { error: 'ไม่พบจังหวัดที่เลือก' },
-        { status: 404 }
-      );
-    }
-
-    // ถ้าไม่ระบุอำเภอ ให้ส่งรายการอำเภอในจังหวัด
+    const district = province.districts.find((item) => item.name === districtName);
     if (!district) {
+      return NextResponse.json({ success: false, message: 'ไม่พบอำเภอที่ระบุ' }, { status: 404 });
+    }
+
+    const centerLat =
+      district.subdistricts.reduce((sum, subdistrict) => sum + subdistrict.lat, 0) /
+      district.subdistricts.length;
+    const centerLon =
+      district.subdistricts.reduce((sum, subdistrict) => sum + subdistrict.lon, 0) /
+      district.subdistricts.length;
+
+    if (metadataOnly) {
       return NextResponse.json({
         success: true,
-        province: province,
-        districts: selectedProvince.districts.map(d => d.name)
+        province: province.name,
+        district: district.name,
+        center: {
+          lat: Number(centerLat.toFixed(6)),
+          lon: Number(centerLon.toFixed(6))
+        },
+        subdistricts: district.subdistricts
       });
     }
 
-    // หาอำเภอที่เลือก
-    const selectedDistrict = selectedProvince.districts.find(d => d.name === district);
-    if (!selectedDistrict) {
-      return NextResponse.json(
-        { error: 'ไม่พบอำเภอที่เลือก' },
-        { status: 404 }
-      );
-    }
-
-    // สร้างข้อมูลพยากรณ์อากาศสำหรับแต่ละตำบล
-    const subdistrictForecastsData = await Promise.all(
-      selectedDistrict.subdistricts.map(async (subdistrict) => {
-        const result = await generateWeatherForecast(subdistrict.name, subdistrict.lat, subdistrict.lon, days);
+    const data = await Promise.all(
+      district.subdistricts.map(async (subdistrict) => {
+        const weather = await fetchOpenMeteoForecast(subdistrict.lat, subdistrict.lon, days);
         return {
           subdistrict: subdistrict.name,
-          ...result
+          lat: subdistrict.lat,
+          lon: subdistrict.lon,
+          forecasts: toForecastRows(weather?.daily, days)
         };
       })
     );
 
-    const hasAnyFallback = subdistrictForecastsData.some(d => d.isFallback);
-
     return NextResponse.json({
       success: true,
-      province: province,
-      district: district,
-      data: subdistrictForecastsData,
-      source: hasAnyFallback ? 'Simulated (API Unavailable)' : 'Open-Meteo API',
+      province: province.name,
+      district: district.name,
+      center: {
+        lat: Number(centerLat.toFixed(6)),
+        lon: Number(centerLon.toFixed(6))
+      },
+      data,
       generatedAt: new Date().toISOString()
     });
-
-  } catch (error) {
-    console.error('Weather forecast error:', error);
-    return NextResponse.json(
-      { error: 'เกิดข้อผิดพลาดในการดึงข้อมูลพยากรณ์อากาศ' },
-      { status: 500 }
-    );
+  } catch (error: any) {
+    console.error('Weather route error:', error);
+    return NextResponse.json({ success: false, message: error?.message || 'Server error' }, { status: 500 });
   }
 }
