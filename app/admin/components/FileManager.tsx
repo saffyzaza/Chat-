@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { IoFolderOutline, IoDocumentOutline, IoEllipsisVertical, IoCreateOutline, IoTrashOutline, IoAddOutline, IoDownloadOutline, IoEyeOutline, IoCheckboxOutline, IoSquareOutline, IoReloadOutline } from 'react-icons/io5';
+import { IoFolderOutline, IoDocumentOutline, IoEllipsisVertical, IoCreateOutline, IoTrashOutline, IoAddOutline, IoDownloadOutline, IoEyeOutline, IoCheckboxOutline, IoSquareOutline, IoReloadOutline, IoCheckmarkCircle, IoCloseCircleOutline } from 'react-icons/io5';
 
 interface FileItem {
   id: string;
@@ -36,6 +36,45 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
   const [apaData, setApaData] = useState<any | null>(null);
   const [apaLoading, setApaLoading] = useState(false);
   const [apaFile, setApaFile] = useState<FileItem | null>(null);
+  const [bulkApaLoading, setBulkApaLoading] = useState(false);
+  const [apaExistsMap, setApaExistsMap] = useState<Record<string, boolean>>({});
+
+  const getFileKey = (filePath: string, fileName: string) => `${filePath}${fileName}`;
+
+  const hasMeaningfulApa = (apa: any) => {
+    if (!apa || typeof apa !== 'object') return false;
+
+    const abstract = typeof apa.abstract === 'string' ? apa.abstract.trim() : '';
+    const thaiKeywords = Array.isArray(apa.keywords?.thai) ? apa.keywords.thai : [];
+    const engKeywords = Array.isArray(apa.keywords?.english) ? apa.keywords.english : [];
+    const references = Array.isArray(apa.references) ? apa.references : [];
+    const researchers = Array.isArray(apa.researchers) ? apa.researchers : [];
+    const projectInfo = apa.projectInfo || {};
+
+    const hasProjectInfo = [
+      projectInfo.titleThai,
+      projectInfo.titleEnglish,
+      projectInfo.proposalCode,
+      projectInfo.budgetYear,
+      projectInfo.university,
+      projectInfo.projectCode,
+      projectInfo.totalBudget,
+      projectInfo.otherInfo,
+    ].some((value) => {
+      if (value === null || value === undefined) return false;
+      if (typeof value === 'string') return value.trim().length > 0;
+      return true;
+    });
+
+    return (
+      abstract.length > 0 ||
+      thaiKeywords.length > 0 ||
+      engKeywords.length > 0 ||
+      references.length > 0 ||
+      researchers.length > 0 ||
+      hasProjectInfo
+    );
+  };
 
   // เมื่อได้ APA data จาก FileUploader ให้แสดง modal อัตโนมัติ (Auto)
   useEffect(() => {
@@ -67,10 +106,30 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
       const response = await fetch(`/api/files?path=${encodeURIComponent(currentPath)}`);
       if (response.ok) {
         const data = await response.json();
-        setFiles(data.files || []);
+        const loadedFiles = data.files || [];
+        setFiles(loadedFiles);
+
+        // โหลดสถานะ APA ของไฟล์ในโฟลเดอร์ปัจจุบัน เพื่อเปลี่ยนไอคอนให้เห็นทันที
+        const apaRes = await fetch(`/api/files/apa?path=${encodeURIComponent(currentPath)}`);
+        if (apaRes.ok) {
+          const apaData = await apaRes.json();
+          const nextMap: Record<string, boolean> = {};
+          const refs = Array.isArray(apaData?.references) ? apaData.references : [];
+          refs.forEach((item: any) => {
+            const path = item?.meta?.file_path;
+            const name = item?.meta?.file_name;
+            if (typeof path === 'string' && typeof name === 'string') {
+              nextMap[getFileKey(path, name)] = hasMeaningfulApa(item?.apa);
+            }
+          });
+          setApaExistsMap(nextMap);
+        } else {
+          setApaExistsMap({});
+        }
       }
     } catch (error) {
       console.error('Error loading files:', error);
+      setApaExistsMap({});
     }
   };
 
@@ -182,6 +241,49 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
     } catch (error) {
       console.error('Error deleting files:', error);
       alert('ไม่สามารถลบบางไฟล์ได้');
+    }
+  };
+
+  const handleGenerateApaSelected = async () => {
+    const targetFiles = files.filter((file) => selectedFiles.has(file.id) && file.type === 'file');
+
+    if (targetFiles.length === 0) {
+      alert('กรุณาเลือกไฟล์ก่อน (โฟลเดอร์ไม่รองรับ)');
+      return;
+    }
+
+    setBulkApaLoading(true);
+    try {
+      const response = await fetch('/api/files/apa/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: currentPath,
+          files: targetFiles.map((file) => file.name),
+          concurrency: 3,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'ไม่สามารถสร้าง APA แบบหลายไฟล์ได้');
+      }
+
+      const failCount = Number(data?.failCount || 0);
+      const successCount = Number(data?.successCount || 0);
+
+      if (failCount > 0) {
+        alert(`สร้าง APA สำเร็จ ${successCount} ไฟล์, ไม่สำเร็จ ${failCount} ไฟล์`);
+      } else {
+        alert(`สร้าง APA สำเร็จ ${successCount} ไฟล์`);
+      }
+
+      await loadFiles();
+    } catch (error: any) {
+      console.error('Error generating APA for selected files:', error);
+      alert(error?.message || 'เกิดข้อผิดพลาดในการสร้าง APA หลายไฟล์');
+    } finally {
+      setBulkApaLoading(false);
     }
   };
 
@@ -349,12 +451,20 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
         if (genResponse.ok) {
           const genData = await genResponse.json();
           setApaData(genData.apa || null);
+          setApaExistsMap((prev) => ({
+            ...prev,
+            [getFileKey(currentPath, file.name)]: hasMeaningfulApa(genData?.apa),
+          }));
         } else {
           const errorData = await genResponse.json().catch(() => ({}));
           setApaData({ error: `ไม่สามารถเข้าถึงฐานข้อมูล APA ได้: ${errorData.error || genResponse.statusText}` });
         }
       } else {
         setApaData(existingApa);
+        setApaExistsMap((prev) => ({
+          ...prev,
+          [getFileKey(currentPath, file.name)]: hasMeaningfulApa(existingApa),
+        }));
       }
     } catch (err) {
       console.error('Error fetching/generating APA:', err);
@@ -380,6 +490,10 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
       if (genResponse.ok) {
         const genData = await genResponse.json();
         setApaData(genData.apa || null);
+        setApaExistsMap((prev) => ({
+          ...prev,
+          [getFileKey(currentPath, file.name)]: hasMeaningfulApa(genData?.apa),
+        }));
       } else {
         const errorData = await genResponse.json().catch(() => ({}));
         setApaData({ error: `ไม่สามารถสร้างข้อมูล APA ได้: ${errorData.error || genResponse.statusText}` });
@@ -396,6 +510,8 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
   const handleOpenReferencesPage = () => {
     window.location.assign('/admin/references');
   };
+
+  const selectedFileCount = files.filter((file) => selectedFiles.has(file.id) && file.type === 'file').length;
 
   return (
     <div>
@@ -416,6 +532,17 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
           )}
         </div>
         <div className="flex gap-2">
+          {selectedFiles.size > 0 && (
+            <button
+              onClick={handleGenerateApaSelected}
+              disabled={bulkApaLoading || selectedFileCount === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium shadow-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              title="สร้าง APA ให้ไฟล์ที่เลือกหลายรายการพร้อมกัน"
+            >
+              <IoReloadOutline size={16} />
+              {bulkApaLoading ? 'กำลังสร้าง APA...' : `สร้าง APA ที่เลือก (${selectedFileCount})`}
+            </button>
+          )}
           {selectedFiles.size > 0 && (
             <button
               onClick={handleDeleteSelected}
@@ -560,9 +687,13 @@ export function FileManager({ refreshTrigger, onFolderSelect, onUploadComplete, 
                           <button
                             onClick={() => handleShowApa(file)}
                             className="p-2 text-blue-600 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors font-medium"
-                            title="โชว์ APA"
+                            title={apaExistsMap[getFileKey(file.path, file.name)] ? 'มี APA แล้ว (คลิกเพื่อดู)' : 'ยังไม่มี APA (คลิกเพื่อสร้าง/ดู)'}
                           >
-                            📊
+                            {apaExistsMap[getFileKey(file.path, file.name)] ? (
+                              <IoCheckmarkCircle size={18} className="text-emerald-600" />
+                            ) : (
+                              <IoCloseCircleOutline size={18} className="text-rose-500" />
+                            )}
                           </button>
                         </>
                       )}

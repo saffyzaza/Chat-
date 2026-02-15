@@ -14,20 +14,23 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
-const ALLOWED_TABLES = [
-  'users',
-  'chat_sessions',
-  'chat_messages',
-  'planning_history',
-  'file_apa_metadata',
-];
-
 async function ensureAdmin(userId: number) {
   const res = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
   const role = res.rows?.[0]?.role || 'user';
   if (role !== 'admin') {
     throw new Error('FORBIDDEN');
   }
+}
+
+async function tableExists(table: string) {
+  const res = await pool.query(
+    `SELECT 1
+     FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = $1
+     LIMIT 1`,
+    [table]
+  );
+  return res.rows.length > 0;
 }
 
 async function getTableColumns(table: string) {
@@ -255,8 +258,11 @@ export const POST = withAuth(async (req: NextRequest, user) => {
       return NextResponse.json({ message: 'ชื่อตารางไม่ถูกต้อง' }, { status: 400 });
     }
 
-    if (!createTable && !ALLOWED_TABLES.includes(table)) {
-      return NextResponse.json({ message: 'ตารางไม่ถูกต้อง' }, { status: 400 });
+    if (!createTable) {
+      const exists = await tableExists(table);
+      if (!exists) {
+        return NextResponse.json({ message: 'ตารางไม่ถูกต้อง หรือไม่มีอยู่ในฐานข้อมูล' }, { status: 400 });
+      }
     }
 
     let records: Record<string, any>[] = [];
