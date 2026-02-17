@@ -8,9 +8,11 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const size = Math.max(1, Number(body.size || 1));
-    const dynamicTimeout = size * 60000; // 1 minute per article (size=1 -> 60s, size=2 -> 120s, ...)
+    // ลด timeout ลงให้เหมาะสม: ฐาน 30 วินาที + 10 วินาทีต่อบทความ (สูงสุดไม่เกิน 3 นาที)
+    const dynamicTimeout = Math.min(180000, 30000 + (size * 10000)); 
     
-    console.log(`🔍 [ThaiJO API Request]: term="${body.term}", page=${body.page}, size=${size} | Timeout: ${dynamicTimeout/1000}s`);
+    const startTime = Date.now();
+    console.log(`📡 [ThaiJO API Start]: term="${body.term}", size=${size} | Timeout: ${dynamicTimeout/1000}s`);
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), dynamicTimeout);
@@ -27,6 +29,8 @@ export async function POST(request: NextRequest) {
       });
 
       clearTimeout(timeoutId);
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`✅ [ThaiJO API Success]: Finish in ${duration}s`);
 
       const text = await response.text();
       let parsed: any = {};
@@ -37,7 +41,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Console log for debugging the real API response
-      console.log('📡 [ThaiJO API Raw Response]:', JSON.stringify(parsed, null, 2));
+      // console.log('📡 [ThaiJO API Raw Response]:', JSON.stringify(parsed, null, 2));
 
       return NextResponse.json(parsed, { status: response.status });
 

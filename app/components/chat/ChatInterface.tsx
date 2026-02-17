@@ -418,6 +418,7 @@ export const ChatInterface = () => {
 }
 
 เงื่อนไขสำคัญ:
+- accidentMessage ตัวอย่าง อุบัติเหตุทางถนนในกรุงเทพฯ ปี 2025 ,สถิติความปลอดภัยทางถนนในประเทศไทย, สาเหตุการเกิดอุบัติเหตุทางถนนที่พบบ่อย จังหวัดต่างๆ, จังหวัดไหนมีอุบัติเหตุเยอะสุด, อุบัติเหตุทางถนนกับโควิด, อุบัติเหตุทางถนนกับฤดูกาล, วิธีลดอุบัติเหตุทางถนน ,ไม่เอา คำ ช่วยเขียนแผนรายงานนโยบาย 
 - useAccident = true สำหรับคำถามเกี่ยวกับสถิติอุบัติเหตุ/ความปลอดภัยบนถนน
 - useChatweather = true สำหรับสภาพอากาศ
 - useThaijo = true สำหรับคำถามวิชาการ/วิจัย (เช่น ค้นหางานวิจัย, หาผู้เชี่ยวชาญ, ข้อมูลวิชาการจากวารสารไทย)
@@ -545,8 +546,8 @@ export const ChatInterface = () => {
     }
   };
 
-  const runPlannedAdminApis = async (plans: AdminApiCallPlan[]): Promise<string> => {
-    if (!plans.length) return '';
+  const runPlannedAdminApis = async (plans: AdminApiCallPlan[]): Promise<{ context: string, raw: any[] }> => {
+    if (!plans.length) return { context: '', raw: [] };
 
     const dedupedPlans = plans.filter((plan, index, arr) =>
       index === arr.findIndex((item) => item.endpoint === plan.endpoint)
@@ -612,20 +613,23 @@ export const ChatInterface = () => {
       }
 
       if (result.endpoint === 'thaijo') {
-        const thaijoData = result.data?.result || result.data?.results || result.data || {};
-        const articles = Array.isArray(thaijoData) 
+        const thaijoData = (result.data as any)?.result || (result.data as any)?.results || result.data || {};
+        let articles = Array.isArray(thaijoData) 
           ? thaijoData 
-          : (thaijoData?.articles || thaijoData?.results || thaijoData?.result || []);
+          : ((thaijoData as any)?.articles || (thaijoData as any)?.results || (thaijoData as any)?.result || []);
           
-        const requestedSize = result.payload?.size || 3;
+        const requestedSize = (result.payload as any)?.size || 3;
+        const totalFound = (articles as any).length || 0;
         
+        console.log(`📦 ThaiJO Data to AI: Found ${totalFound} articles, requested ${requestedSize}`);
+
         return {
           endpoint: result.endpoint,
           ok: result.ok,
           status: result.status,
-          term: result.payload?.term,
+          term: (result.payload as any)?.term,
           articles: Array.isArray(articles) ? articles.slice(0, Math.max(3, requestedSize)) : [],
-          message: result.data?.message,
+          message: (result.data as any)?.message,
         };
       }
 
@@ -643,13 +647,16 @@ export const ChatInterface = () => {
       };
     });
 
-    return [
-      '## ADMIN_API_RESULTS',
-      JSON.stringify(compact),
-      '## END_ADMIN_API_RESULTS',
-      '',
-      'ข้อกำหนด: หากมี ADMIN_API_RESULTS ให้เรียบเรียงคำตอบโดยยึดข้อมูลจากผล API นี้เป็นหลัก และถ้าบาง endpoint ล้มเหลวให้แจ้งเหตุผลสั้นๆ',
-    ].join('\n');
+    return {
+      context: [
+        '## ADMIN_API_RESULTS',
+        JSON.stringify(compact),
+        '## END_ADMIN_API_RESULTS',
+        '',
+        'ข้อกำหนด: หากมี ADMIN_API_RESULTS ให้เรียบเรียงคำตอบโดยยึดข้อมูลจากผล API นี้เป็นหลัก และถ้าบาง endpoint ล้มเหลวให้แจ้งเหตุผลสั้นๆ',
+      ].join('\n'),
+      raw: compact
+    };
   };
 
   // Request throttling: เก็บเวลาของ request ล่าสุด
@@ -848,6 +855,13 @@ export const ChatInterface = () => {
 
     // ตรวจสอบว่ามี session ID ใน URL หรือไม่
     const sessionId = searchParams.get('session');
+
+    // ถ้ามีการเปลี่ยน Session หรือเริ่มแชทใหม่ในขณะที่กำลัง loading ให้หยุด request เก่าก่อน
+    // เพื่อป้องกันไม่ให้ async loop ของอันเก่าไป update state หรือ panel ของห้องใหม่
+    if (isLoading) {
+      console.log('🛑 Aborting background request due to session navigation');
+      handleStop(true); 
+    }
 
     if (sessionId) {
       console.log('🔍 Loading session from URL:', sessionId);
@@ -1113,7 +1127,7 @@ export const ChatInterface = () => {
       console.log('🤖 selectedTool (AI detect):', effectiveTool ?? 'null');
       if (effectiveTool) {
         // เปิดแผงด้านข้างสำหรับเครื่องมือที่ต้องการพื้นที่แสดงผลเพิ่มเติม
-        if (['เขียนแผนงาน', 'สรุปรายงาน', 'สร้างกราฟ'].includes(effectiveTool)) {
+        if (['เขียนแผนงาน', 'สรุปรายงาน', 'เทียบข้อมูล'].includes(effectiveTool)) {
           setPlanContent('');
           setShowPlanPanel(true);
         }
@@ -1125,9 +1139,11 @@ export const ChatInterface = () => {
     const plannedAdminCalls = await adminPlanPromise;
     console.log('🧭 planned admin API calls:', plannedAdminCalls);
 
+    let adminApiResults: any[] = [];
     if (plannedAdminCalls.length > 0) {
       setLoadingStatus('สสส กำลังเรียกใช้ข้อมูลจากระบบภายใน...');
-      const adminApiContext = await runPlannedAdminApis(plannedAdminCalls);
+      const { context: adminApiContext, raw } = await runPlannedAdminApis(plannedAdminCalls);
+      adminApiResults = raw;
 
       if (adminApiContext) {
         const lastMsg = contents[contents.length - 1];
@@ -1141,7 +1157,7 @@ export const ChatInterface = () => {
     }
 
     const usedAdminEndpoints = plannedAdminCalls.map((plan) => `/api/admin/${plan.endpoint}`);
-    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller, autoAttachedFiles, usedAdminEndpoints);
+    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller, autoAttachedFiles, usedAdminEndpoints, adminApiResults);
   };
 
   /**
@@ -1154,7 +1170,8 @@ export const ChatInterface = () => {
     sessionId?: string | null,
     controller?: AbortController,
     autoAttachedFiles?: any[],
-    usedAdminEndpoints: string[] = []
+    usedAdminEndpoints: string[] = [],
+    adminApiResults: any[] = [] // <--- Add this!
   ) => {
     const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
     console.log('🚀 performGeminiRequest selectedTool:', selectedTool ?? 'null');
@@ -1165,7 +1182,7 @@ export const ChatInterface = () => {
       const autoFileCount = autoAttachedFiles?.length || 0;
       const totalAttachedFileCount = manualFileCount + autoFileCount;
       const isSpecialTool = !!(selectedTool && [
-        'เขียนแผนงาน', 'สร้างกราฟ', 'สรุปรายงาน', 'ขอคำปรึกษา', 'เทียบข้อมูล',
+        'เขียนแผนงาน', 'สรุปรายงาน', 'เทียบข้อมูล',
         'A = บทความต้นฉบับ'
         , 'B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค', 'C = สถานการณ์โรค'
       ].includes(selectedTool));
@@ -1262,6 +1279,45 @@ export const ChatInterface = () => {
         hasAutoAttached = true;
       }
 
+      // 3. ✨ ใหม่: เพิ่มรายการจาก ThaiJO API เพื่อให้นำไปอ้างอิงในบรรณานุกรมได้ด้วย
+      const thaijoResult = adminApiResults.find(r => r.endpoint === 'thaijo');
+      if (thaijoResult && Array.isArray(thaijoResult.articles)) {
+        const thaijoFileInfos = thaijoResult.articles.map((art: any) => {
+          // ดึงผู้แต่งอย่างละเอียด (รองรับทั้ง Array และ String พร้อม fallback หลายรูปแบบ)
+          let finalAuthor = 'ไม่ระบุผู้แต่ง';
+          const rawAuthors = art.authors || art.author || art.author_name || art.author_name_th || art.authorNames || art.authorName;
+          
+          if (Array.isArray(rawAuthors)) {
+            const filteredAuthors = rawAuthors.map(a => 
+              typeof a === 'string' ? a : (a?.name || a?.name_th || '')
+            ).filter(a => typeof a === 'string' && a.trim() !== '');
+            
+            if (filteredAuthors.length > 0) {
+              finalAuthor = filteredAuthors.join(', ');
+            }
+          } else if (typeof rawAuthors === 'string' && rawAuthors.trim()) {
+            finalAuthor = rawAuthors.trim();
+          } else if (rawAuthors && typeof rawAuthors === 'object') {
+            finalAuthor = rawAuthors.name || rawAuthors.name_th || 'ไม่ระบุผู้แต่ง';
+          }
+
+          return {
+            name: art.title || art.title_th || art.article_title || art.articleTitle || 'บทความวิจัยจาก ThaiJO',
+            apa: {
+              projectInfo: {
+                titleThai: art.title || art.title_th || art.article_title || art.articleTitle || 'ไม่ระบุชื่อบทความ',
+                responsibleAuthor: finalAuthor,
+                organization: art.journal_name || art.source || art.journalName || 'ฐานข้อมูล ThaiJO'
+              },
+              abstract: art.abstract || art.description || art.article_abstract || ''
+            },
+            url: art.url || art.link || art.article_url || '#',
+            source: 'thaijo'
+          };
+        });
+        allFileInfos = [...allFileInfos, ...thaijoFileInfos];
+      }
+
       const referenceProducers = allFileInfos.map((info) => {
         const author = info.apa?.projectInfo?.responsibleAuthor || info.apa?.projectInfo?.authorNames || 'ไม่ระบุผู้แต่ง';
         const organization = info.apa?.projectInfo?.organization || '';
@@ -1270,7 +1326,7 @@ export const ChatInterface = () => {
 
       // 📋 สร้าง File Context จากไฟล์ที่รวบรวมได้ (ใช้ชุดตัวเลขเดียวเพื่อป้องกันความสับสน)
       fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
-      fileContext += '📚 **รายการเอกสารอ้างอิงสำหรับคำตอบนี้ (Source Context)**:\n';
+      fileContext += '📚 **รายการเอกสารอ้างอิงสำหรับคำตอบนี้ (Session Context)**:\n';
       fileContext += `มีเอกสารทั้งหมดที่ระบบเลือกมาให้ใช้: **${allFileInfos.length} ไฟล์**\n\n`;
 
       allFileInfos.forEach((info, index) => {
@@ -1712,12 +1768,17 @@ export const ChatInterface = () => {
   // note: follow-ups ถูกสกัดและตั้งค่าเมื่อได้รับคำตอบแล้วด้านบน
 
   // ฟังก์ชันหยุดการตอบ กู้คืนสภาพ และลบข้อความล่าสุด (user + assistant)
-  const handleStop = async () => {
+  const handleStop = async (preserveMessages: boolean = false) => {
     stopRequestedRef.current = true;
     setLoadingStatus('');
     try {
       abortControllerRef.current?.abort();
     } catch {}
+
+    if (preserveMessages) {
+       setIsLoading(false);
+       return;
+    }
 
     // ถ้าเป็นคำถามแรกของแชท ให้ลบ history (ลบทั้ง session)
     try {

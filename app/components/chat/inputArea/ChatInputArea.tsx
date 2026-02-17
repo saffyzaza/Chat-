@@ -562,14 +562,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
           <div className="relative">
             {openPopup === 'tools' && (
               <div ref={toolsPopupRef} className="absolute bottom-full left-0 mb-2 w-60 bg-white rounded-xl shadow-lg border border-gray-100 p-2 z-10">
-                <PopupMenuItem 
+                {/* <PopupMenuItem 
                   icon={<IoSearchOutline size={22} className="text-orange-500" />} 
                   text="Deep Research"
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('Deep Research');
                   }}
-                />
+                /> */}
                 <PopupMenuItem 
                   icon={<IoGitCompareOutline size={22} className="text-gray-600" />} 
                   text="เปรียบเทียบข้อมูล"
@@ -594,14 +594,14 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                     setSelectedTool('สรุปรายงาน');
                   }}
                 />
-                <PopupMenuItem 
+                {/* <PopupMenuItem 
                   icon={<IoStatsChartOutline size={22} className="text-gray-600" />} 
                   text="สร้างกราฟ"
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('สร้างกราฟ');
                   }}
-                />
+                /> */}
                 <PopupMenuItem 
                   icon={<IoCreateOutline size={22} className="text-gray-600" />} 
                   text="เขียนแผนงาน"
@@ -623,12 +623,12 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                   >
                     B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค
                   </button>
-                  <button 
+                  {/* <button 
                     className="text-left py-1 px-2 text-sm text-gray-500 hover:bg-gray-50 rounded transition-colors"
                     onClick={() => { setOpenPopup(null); setSelectedTool('C = สถานการณ์โรค'); }}
                   >
                     C = สถานการณ์โรค
-                  </button>
+                  </button> */}
                 </div>
                 <PopupMenuItem 
                   icon={<CiDatabase size={22} className="text-gray-600" />} 

@@ -24,10 +24,11 @@ import {
   ImageRun,
 } from 'docx';
 import { saveAs } from 'file-saver';
-import { FiDownload, FiX, FiImage, FiExternalLink } from 'react-icons/fi';
+import { FiDownload, FiX, FiImage, FiExternalLink, FiMapPin } from 'react-icons/fi';
 import html2canvas from 'html2canvas';
 import { ChartRenderer } from './ChartRenderer';
 import { TableRenderer } from './TableRenderer';
+import { MapRenderer } from './MapRenderer';
 
 interface ProjectPlanProps {
   content?: string;
@@ -310,14 +311,23 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
           if (cells.length > 0) {
             const isHeader = rowIdx === 0;
-            const cellWidth = 100 / cells.length;
+            
+            // ปรับความกว้างคอลัมน์ให้เหมาะสม (คอลัมน์แรกมักเป็นลำดับ)
+            let cellWidths: number[] = [];
+            if (cells.length === 1) cellWidths = [100];
+            else if (cells.length === 2) cellWidths = [15, 85];
+            else if (cells.length === 3) cellWidths = [10, 45, 45];
+            else if (cells.length === 4) cellWidths = [8, 32, 25, 35];
+            else if (cells.length === 5) cellWidths = [8, 25, 25, 22, 20];
+            else if (cells.length === 6) cellWidths = [7, 20, 25, 18, 15, 15];
+            else cellWidths = cells.map(() => 100 / cells.length);
 
             rows.push(
               new TableRow({
                 children: cells.map(
-                  (cell) =>
+                  (cell, cIdx) =>
                     new TableCell({
-                      width: { size: cellWidth, type: WidthType.PERCENTAGE },
+                      width: { size: cellWidths[cIdx] || (100 / cells.length), type: WidthType.PERCENTAGE },
                       children: [
                         new Paragraph({
                           children: parseTextToWordElements(cell.trim(), {
@@ -349,7 +359,6 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           docChildren.push(
             new Table({
               width: { size: 100, type: WidthType.PERCENTAGE },
-              layout: TableLayoutType.FIXED,
               rows,
               margins: { bottom: 400 },
             })
@@ -451,9 +460,18 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           
           // Header Row
           if (processedHeaders.length > 0) {
+            // ปรับความกว้างคอลัมน์อัตโนมัติสำหรับ JSON table
+            const count = processedHeaders.length;
+            const jsonWidths = count === 1 ? [100] :
+                               count === 2 ? [15, 85] :
+                               count === 3 ? [10, 45, 45] :
+                               count === 4 ? [8, 32, 25, 35] :
+                               count === 5 ? [8, 25, 25, 22, 20] :
+                               processedHeaders.map(() => 100 / count);
+
             docTableRows.push(new TableRow({
-              children: processedHeaders.map(h => new TableCell({
-                width: { size: 100 / processedHeaders.length, type: WidthType.PERCENTAGE },
+              children: processedHeaders.map((h, hIdx) => new TableCell({
+                width: { size: jsonWidths[hIdx], type: WidthType.PERCENTAGE },
                 children: [new Paragraph({
                   children: parseTextToWordElements(String(h), { forceBold: true, size: 24 }),
                   alignment: AlignmentType.CENTER,
@@ -464,7 +482,9 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                   bottom: { style: BorderStyle.SINGLE, size: 4 },
                   left: { style: BorderStyle.SINGLE, size: 4 },
                   right: { style: BorderStyle.SINGLE, size: 4 },
-                }
+                },
+                margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                verticalAlign: VerticalAlign.CENTER,
               }))
             }));
           }
@@ -483,7 +503,9 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                     bottom: { style: BorderStyle.SINGLE, size: 4 },
                     left: { style: BorderStyle.SINGLE, size: 4 },
                     right: { style: BorderStyle.SINGLE, size: 4 },
-                  }
+                  },
+                  margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                  verticalAlign: VerticalAlign.CENTER,
                 }))
               }));
             }
@@ -498,6 +520,102 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           }
         } catch (e) {
           console.error('Table AI parse error in word export', e);
+        }
+        i++;
+        continue;
+      }
+
+      if (trimmed === '```json:map' || trimmed === '```json:map-ai') {
+        let mapJsonContent = '';
+        i++;
+        while (i < lines.length && !lines[i].trim().includes('```')) {
+          mapJsonContent += lines[i] + '\n';
+          i++;
+        }
+        try {
+          const cleanJson = mapJsonContent
+            .replace(/("([^"\\]*(\\.[^"\\]*)*)")|(\/\/.*$)|(\/\*[\s\S]*?\*\/)/gm, (m, p1) => p1 || '')
+            .replace(/,(\s*[\]}])/g, '$1')
+            .trim();
+          const mapData = JSON.parse(cleanJson);
+          const points = Array.isArray(mapData.points) ? mapData.points : [];
+
+          docChildren.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `📍 แผนที่แสดงผล: ${mapData.title || 'ข้อมูลพิกัดภูมิศาสตร์'}`,
+                  bold: true,
+                  color: 'C00000',
+                  font: DOC_CONFIG.font,
+                  size: 28,
+                }),
+              ],
+              spacing: { before: 200, after: 100 },
+            })
+          );
+
+          if (points.length > 0) {
+            const mapWidths = [8, 32, 25, 35];
+            const mapTableRows = [
+              new TableRow({
+                children: ['จุดที่', 'สถานที่/จุดเกิดเหตุ', 'พิกัด (Lat, Lon)', 'รายละเอียด'].map((h, hIdx) => new TableCell({
+                  width: { size: mapWidths[hIdx], type: WidthType.PERCENTAGE },
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: h, bold: true, size: 24 })],
+                    alignment: AlignmentType.CENTER,
+                  })],
+                  shading: { fill: 'F2F2F2' },
+                  borders: {
+                    top: { style: BorderStyle.SINGLE, size: 4 },
+                    bottom: { style: BorderStyle.SINGLE, size: 4 },
+                    left: { style: BorderStyle.SINGLE, size: 4 },
+                    right: { style: BorderStyle.SINGLE, size: 4 },
+                  },
+                  margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                  verticalAlign: VerticalAlign.CENTER,
+                }))
+              })
+            ];
+
+            points.forEach((p: any, idx: number) => {
+              const lat = p.lat || p.latitude || '-';
+              const lon = p.lon || p.lng || p.longitude || '-';
+              const location = p.location || p.point || p.area || '-';
+              const detail = [p.road, p.date, p.time, p.vehicleType].filter(Boolean).join(', ') || '-';
+
+              mapTableRows.push(new TableRow({
+                children: [
+                  String(idx + 1),
+                  location,
+                  `${lat}, ${lon}`,
+                  detail
+                ].map((c, cIdx) => new TableCell({
+                  width: { size: mapWidths[cIdx], type: WidthType.PERCENTAGE },
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: c, size: 22 })],
+                    alignment: cIdx === 0 || cIdx === 2 ? AlignmentType.CENTER : AlignmentType.LEFT,
+                  })],
+                  borders: {
+                    top: { style: BorderStyle.SINGLE, size: 2 },
+                    bottom: { style: BorderStyle.SINGLE, size: 2 },
+                    left: { style: BorderStyle.SINGLE, size: 2 },
+                    right: { style: BorderStyle.SINGLE, size: 2 },
+                  },
+                  margins: { top: 80, bottom: 80, left: 80, right: 80 },
+                  verticalAlign: VerticalAlign.CENTER,
+                }))
+              }));
+            });
+
+            docChildren.push(new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: mapTableRows,
+              margins: { bottom: 400 },
+            }));
+          }
+        } catch (e) {
+          console.error('Map AI parse error in word export', e);
         }
         i++;
         continue;
@@ -836,32 +954,28 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             return (
             <div 
               key={index} 
-              className="w-full max-w-4xl bg-white shadow-[0_0_60px_-15px_rgba(0,0,0,0.15)] border border-gray-200 rounded-sm p-12 md:p-20 md:pb-32 mb-12 min-h-[1120px] relative transition-all hover:shadow-2xl flex flex-col"
+              className="w-full max-w-4xl bg-white shadow-[0_0_60px_-15px_rgba(0,0,0,0.15)] border border-gray-200 rounded-sm p-12 md:p-20 mb-12 min-h-[1123px] h-auto relative transition-all hover:shadow-2xl flex flex-col"
             > 
-              <div className="absolute bottom-10 left-0 right-0 text-center text-[10px] text-gray-400 font-bold select-none print:hidden uppercase tracking-[0.3em] border-t border-gray-50 pt-8 mx-20">
-                PAGINATION • {index + 1} / {array.length}
-              </div>
-
-              <article className="prose prose-blue max-w-none flex-1 pb-10 wrap-break-word">
+              <article className="prose prose-blue max-w-none pb-20 break-words">
                 <Markdown
                   options={{
                     overrides: {
                         h1: {
                           component: 'h1',
                           props: {
-                            className: 'mb-12 wrap-break-word border-b-4 border-blue-600 pb-6 text-center text-3xl font-black leading-tight text-gray-900 tracking-tight md:text-5xl',
+                            className: 'mb-12 break-words border-b-4 border-blue-600 pb-6 text-center text-3xl font-black leading-tight text-gray-900 tracking-tight md:text-5xl',
                           },
                         },
                         h2: {
                           component: 'h2',
                           props: {
-                            className: 'mb-8 mt-16 wrap-break-word border-b border-gray-100 pb-2 text-xl font-bold leading-snug text-[#1A5F7A] md:text-3xl',
+                            className: 'mb-8 mt-16 break-words border-b border-gray-100 pb-2 text-xl font-bold leading-snug text-[#1A5F7A] md:text-3xl',
                           },
                         },
                         h3: {
                           component: 'h3',
                           props: {
-                            className: 'mb-6 mt-12 wrap-break-word border-l-4 border-blue-200 pl-6 text-lg font-bold leading-snug text-blue-800 md:text-2xl',
+                            className: 'mb-6 mt-12 break-words border-l-4 border-blue-200 pl-6 text-lg font-bold leading-snug text-blue-800 md:text-2xl',
                           },
                         },
                         p: {
@@ -874,7 +988,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                             return (
                               <p 
                                 {...props} 
-                                className={`mb-6 wrap-break-word text-left text-base leading-snug text-gray-700 md:text-xl whitespace-normal ${isRef || isSectionHeader ? 'indent-0 text-sm md:text-base opacity-80 border-l-2 border-gray-100 pl-4 py-2 bg-gray-50/20 rounded-r-lg' : 'indent-8 font-medium'}`}
+                                className={`mb-6 break-words text-left text-base leading-snug text-gray-700 md:text-xl whitespace-normal ${isRef || isSectionHeader ? 'indent-0 text-sm md:text-base opacity-80 border-l-2 border-gray-100 pl-4 py-2 bg-gray-50/20 rounded-r-lg' : 'indent-8 font-medium'}`}
                               >
                                 {children}
                               </p>
@@ -884,27 +998,28 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                         ul: {
                           component: 'ul',
                           props: {
-                            className: 'mb-8 wrap-break-word space-y-4 pl-10 text-gray-700 list-disc',
+                            className: 'mb-8 break-words space-y-4 pl-10 text-gray-700 list-disc',
                           },
                         },
                         ol: {
                           component: 'ol',
                           props: {
-                            className: 'mb-8 wrap-break-word space-y-4 pl-10 text-gray-700 list-decimal',
+                            className: 'mb-8 break-words space-y-4 pl-10 text-gray-700 list-decimal',
                           },
                         },
                         li: {
                           component: 'li',
                           props: {
-                            className: 'wrap-break-word pl-2 text-base leading-relaxed md:text-xl marker:font-bold marker:text-blue-500',
+                            className: 'break-words pl-2 text-base leading-relaxed md:text-xl marker:font-bold marker:text-blue-500',
                           },
                         },
                       code: {
                         component: ({ children, className }: any) => {
                           const isChart = className?.includes('language-json:chart');
                           const isTable = className?.includes('language-json:table');
+                          const isMap = className?.includes('language-json:map');
                           
-                          if (isChart || isTable) {
+                          if (isChart || isTable || isMap) {
                             try {
                               const content = Array.isArray(children) ? children.join('') : children;
                               const cleanJson = content
@@ -930,6 +1045,15 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                                   </div>
                                 );
                               }
+
+                              if (isMap) {
+                                const mapData = JSON.parse(cleanJson);
+                                return (
+                                  <div className="my-10 p-4 md:p-8 bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden hover:shadow-2xl transition-all bg-linear-to-br from-white to-blue-50/20">
+                                    <MapRenderer mapData={mapData} />
+                                  </div>
+                                );
+                              }
                             } catch (e) {
                               return <pre className="p-4 bg-red-50 text-red-500 rounded-lg break-all">{String(children)}</pre>;
                             }
@@ -939,7 +1063,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                       },
                       table: { 
                         component: ({ children, ...props }: any) => (
-                          <div className="my-10 w-full overflow-x-auto wrap-break-word">
+                          <div className="my-10 w-full overflow-x-auto break-words">
                             <table className="w-full border-collapse border border-gray-200 shadow-md rounded-lg table-auto" {...props}>
                               {children}
                             </table>
@@ -949,25 +1073,25 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                         th: {
                           component: 'th',
                           props: {
-                            className: 'bg-gray-50/50 wrap-break-word border-b border-gray-200 px-4 py-3 text-sm font-bold uppercase text-gray-700 tracking-wider md:text-base align-middle whitespace-normal text-center',
+                            className: 'bg-gray-50/50 break-words border-b border-gray-200 px-4 py-3 text-sm font-bold uppercase text-gray-700 tracking-wider md:text-base align-middle whitespace-normal text-center',
                           },
                         },
                         td: {
                           component: 'td',
                           props: {
-                            className: 'bg-white wrap-break-word border-b border-gray-100 px-4 py-3 text-sm font-normal leading-relaxed text-gray-700 md:text-base align-middle whitespace-normal',
+                            className: 'bg-white break-words border-b border-gray-100 px-4 py-3 text-sm font-normal leading-relaxed text-gray-700 md:text-base align-middle whitespace-normal',
                           },
                         },
                         strong: {
                           component: 'strong',
                           props: {
-                            className: 'wrap-break-word font-bold text-gray-900 px-0.5',
+                            className: 'break-words font-bold text-gray-900 px-0.5',
                           },
                         },
                         blockquote: {
                           component: 'blockquote',
                           props: {
-                            className: 'mb-10 wrap-break-word rounded-r-xl border-l-[6px] border-blue-400 bg-blue-50/30 py-4 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
+                            className: 'mb-10 break-words rounded-r-xl border-l-[6px] border-blue-400 bg-blue-50/30 py-4 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
                           },
                         },
                         a: {
@@ -1029,6 +1153,10 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                   {trimmedContent}
                 </Markdown>
               </article>
+
+              <div className="mt-auto pt-8 border-t border-gray-50 text-center text-[10px] text-gray-400 font-bold select-none print:hidden uppercase tracking-[0.3em] mx-10">
+                PAGINATION • {index + 1} / {array.length}
+              </div>
             </div>
           );
         })}
