@@ -12,19 +12,34 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+let ensureMapsColumnPromise: Promise<void> | null = null;
+const ensureMapsColumn = async () => {
+  if (!ensureMapsColumnPromise) {
+    ensureMapsColumnPromise = pool
+      .query('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS maps JSONB')
+      .then(() => undefined)
+      .catch((error) => {
+        console.warn('ensure maps column failed:', error?.message || error);
+      });
+  }
+  await ensureMapsColumnPromise;
+};
+
 // POST: เพิ่มข้อความใน session
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMapsColumn();
     const { id: sessionId } = await params;
-    const { role, content, images, charts, tables, codeBlocks, planContent } = await request.json();
+    const { role, content, images, charts, tables, maps, codeBlocks, planContent } = await request.json();
 
     // ปรับปรุงการตรวจสอบ: อนุญาตให้ content ว่างได้หากมีองค์ประกอบอื่น (เช่น รูปภาพ, ชาร์ต, ตาราง, หรือแผนงาน)
     const hasAttachments = (images && images.length > 0) || 
                           (charts && charts.length > 0) || 
                           (tables && tables.length > 0) || 
+                          (maps && maps.length > 0) || 
                           (codeBlocks && codeBlocks.length > 0) || 
                           planContent;
 
@@ -51,9 +66,9 @@ export async function POST(
     // เพิ่มข้อความ
     const insertQuery = `
       INSERT INTO chat_messages (
-        session_id, role, content, images, charts, tables, code_blocks, plan_content
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING id, role, content, images, charts, tables, code_blocks, plan_content, created_at
+        session_id, role, content, images, charts, tables, maps, code_blocks, plan_content
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, role, content, images, charts, tables, maps, code_blocks, plan_content, created_at
     `;
 
     const insertResult = await pool.query(insertQuery, [
@@ -63,6 +78,7 @@ export async function POST(
       images || null,
       charts ? JSON.stringify(charts) : null,
       tables ? JSON.stringify(tables) : null,
+      maps ? JSON.stringify(maps) : null,
       codeBlocks ? JSON.stringify(codeBlocks) : null,
       planContent || null
     ]);
@@ -106,6 +122,7 @@ export async function POST(
         images: newMessage.images || [],
         charts: newMessage.charts || [],
         tables: newMessage.tables || [],
+        maps: newMessage.maps || [],
         codeBlocks: newMessage.code_blocks || [],
         planContent: newMessage.plan_content,
         timestamp: newMessage.created_at
@@ -126,10 +143,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMapsColumn();
     const { id: sessionId } = await params;
 
     const query = `
-      SELECT id, role, content, images, charts, tables, code_blocks, plan_content, created_at
+      SELECT id, role, content, images, charts, tables, maps, code_blocks, plan_content, created_at
       FROM chat_messages 
       WHERE session_id = $1
       ORDER BY created_at ASC
@@ -144,6 +162,7 @@ export async function GET(
         images: msg.images || [],
         charts: msg.charts || [],
         tables: msg.tables || [],
+        maps: msg.maps || [],
         codeBlocks: msg.code_blocks || [],
         planContent: msg.plan_content,
         timestamp: msg.created_at

@@ -21,9 +21,10 @@ import {
   TableLayoutType,
   PageNumber,
   ExternalHyperlink,
+  ImageRun,
 } from 'docx';
 import { saveAs } from 'file-saver';
-import { FiDownload, FiX, FiImage } from 'react-icons/fi';
+import { FiDownload, FiX, FiImage, FiExternalLink } from 'react-icons/fi';
 import html2canvas from 'html2canvas';
 import { ChartRenderer } from './ChartRenderer';
 import { TableRenderer } from './TableRenderer';
@@ -52,6 +53,104 @@ const DOC_CONFIG = {
 export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlanProps) => {
   if (!content && !isLoading) return null;
 
+  const formatReferenceBlock = (text: string): string => {
+    if (!text) return text;
+    // ปรับปรุงการจัดรูปแบบส่วนอ้างอิงให้เป็นระเบียบ เป็น Flex-like list
+    return text.replace(/(เอกสารอ้างอิง(?:เชิงวิชาการ)?\s*:?)([\s\S]*)/i, (_match, header, tail) => {
+      const normalizedTail = String(tail || '')
+        .replace(/\s*(\[\d+\])/g, '\n\n$1') // เว้นบรรทัดระหว่างรายการอ้างอิง
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return `\n---\n\n### ${header}\n\n${normalizedTail}`;
+    });
+  };
+
+  const dataUrlToUint8Array = (dataUrl: string): Uint8Array | null => {
+    try {
+      const base64 = dataUrl.split(',')[1] || '';
+      if (!base64) return null;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    } catch {
+      return null;
+    }
+  };
+
+  const normalizeChartPayload = (input: any): { type: 'bar' | 'line' | 'pie' | 'doughnut'; data: any; title?: string } | null => {
+    if (!input || typeof input !== 'object') return null;
+
+    const rawType = String(input.type || input.chartType || '').toLowerCase();
+    const type = (['bar', 'line', 'pie', 'doughnut'].includes(rawType) ? rawType : 'bar') as 'bar' | 'line' | 'pie' | 'doughnut';
+
+    const data = input?.data && typeof input.data === 'object'
+      ? input.data
+      : {
+          labels: Array.isArray(input?.labels) ? input.labels : [],
+          datasets: Array.isArray(input?.datasets) ? input.datasets : [],
+        };
+
+    if (!Array.isArray(data?.datasets) || data.datasets.length === 0) return null;
+
+    return {
+      type,
+      data,
+      title: input?.options?.plugins?.title?.text || input?.title || undefined,
+    };
+  };
+
+  const createChartImageData = async (chartData: any): Promise<Uint8Array | null> => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const ChartLib = (window as any)?.Chart;
+      if (!ChartLib) return null;
+
+      const normalized = normalizeChartPayload(chartData);
+      if (!normalized) return null;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280;
+      canvas.height = 720;
+
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+
+      const chart = new ChartLib(context, {
+        type: normalized.type,
+        data: JSON.parse(JSON.stringify(normalized.data)),
+        options: {
+          responsive: false,
+          animation: false,
+          plugins: {
+            legend: { display: true, position: 'top' },
+            title: {
+              display: !!normalized.title,
+              text: normalized.title,
+            },
+          },
+          scales: normalized.type === 'pie' || normalized.type === 'doughnut'
+            ? {}
+            : {
+                x: { ticks: { maxRotation: 0, autoSkip: true } },
+                y: { beginAtZero: true },
+              },
+        },
+      });
+
+      chart.update();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const png = canvas.toDataURL('image/png', 1);
+      chart.destroy();
+
+      return dataUrlToUint8Array(png);
+    } catch {
+      return null;
+    }
+  };
+
   const isDeepResearch = status?.toLowerCase().includes('deep research') || 
                          status?.toLowerCase().includes('deep search') ||
                          content?.toLowerCase().includes('deep research') ||
@@ -61,7 +160,8 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
   const handleDownload = async () => {
     if (!content) return;
 
-    const lines = content.split('\n');
+    const normalizedContent = formatReferenceBlock(content);
+    const lines = normalizedContent.split('\n');
     const docChildren: any[] = [];
 
     const parseTextToWordElements = (text: string, options: { size?: number, color?: string, forceBold?: boolean } = {}): any[] => {
@@ -69,6 +169,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       
       // 1. Clean up technical artifacts and fix broken markdown links across lines
       const cleanedText = text
+        .replace(/(^|\s)(https?:\/\/[^\s<)]+)(?=$|\s)/g, '$1[$2]($2)')
         .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, t, u) => {
           return `[${t}](${u.replace(/\s+/g, '')})`;
         })
@@ -257,7 +358,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
         continue;
       }
 
-      if (trimmed === '```json:chart') {
+      if (trimmed === '```json:chart' || trimmed === '```json:chart-ai') {
         let chartContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
@@ -271,21 +372,42 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             .replace(/,(\s*[\]}])/g, '$1')
             .trim();
           const chartData = JSON.parse(cleanJson);
-          docChildren.push(
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `[📊 กราฟแสดงผล: ${chartData.options?.plugins?.title?.text || chartData.title || chartData.type || 'ข้อมูลสถิติ'}]`,
-                  bold: true,
-                  color: '1A5F7A',
-                  font: DOC_CONFIG.font,
-                  size: 24,
-                }),
-              ],
-              alignment: AlignmentType.CENTER,
-              spacing: { before: 200, after: 200 },
-            })
-          );
+          const chartImageData = await createChartImageData(chartData);
+
+          if (chartImageData) {
+            docChildren.push(
+              new Paragraph({
+                children: [
+                  new ImageRun({
+                    type: 'png',
+                    data: chartImageData,
+                    transformation: {
+                      width: 620,
+                      height: 350,
+                    },
+                  }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 180, after: 180 },
+              })
+            );
+          } else {
+            docChildren.push(
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: `[📊 กราฟแสดงผล: ${chartData.options?.plugins?.title?.text || chartData.title || chartData.type || 'ข้อมูลสถิติ'}]`,
+                    bold: true,
+                    color: '1A5F7A',
+                    font: DOC_CONFIG.font,
+                    size: 24,
+                  }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 200, after: 200 },
+              })
+            );
+          }
         } catch (e) {
           console.error('Chart parse error in word export', e);
         }
@@ -333,7 +455,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
               children: processedHeaders.map(h => new TableCell({
                 width: { size: 100 / processedHeaders.length, type: WidthType.PERCENTAGE },
                 children: [new Paragraph({
-                  children: parseTextToWordElements(String(h), { bold: true, size: 24 }),
+                  children: parseTextToWordElements(String(h), { forceBold: true, size: 24 }),
                   alignment: AlignmentType.CENTER,
                 })],
                 shading: { fill: 'F2F2F2' },
@@ -652,6 +774,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             // Pre-process markdown to fix common table rendering issues
             let processedContent = pageContent
               .trim()
+              .replace(/(^|\s)(https?:\/\/[^\s<)]+)(?=$|\s)/g, '$1[$2]($2)')
               // 1. Remove <thought> tags that AI might generate
               .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
               .replace(/<\/?thought[^>]*>/gi, '')
@@ -664,7 +787,10 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
               .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
                 const cleanUrl = url.replace(/\s+/g, '');
                 return `[${text}](${cleanUrl})`;
-              });
+              })
+              .replace(/(\])\s*(?=\[\d+\])/g, '$1\n\n');
+
+            processedContent = formatReferenceBlock(processedContent);
 
             const lines = processedContent.split('\n');
             const finalLines = [];
@@ -739,27 +865,38 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                           },
                         },
                         p: {
-                          component: 'p',
-                          props: {
-                            className: 'mb-8 wrap-break-word text-left text-base font-medium leading-[1.8] text-gray-700 md:text-xl whitespace-normal indent-10',
-                          },
+                          component: ({ children, ...props }: any) => {
+                            const childrenArray = React.Children.toArray(children);
+                            const firstChild = childrenArray[0];
+                            const isRef = typeof firstChild === 'string' && /^\[\s*\d+\s*\]/.test(firstChild.trim());
+                            const isSectionHeader = typeof firstChild === 'string' && firstChild.includes('เอกสารอ้างอิง');
+                            
+                            return (
+                              <p 
+                                {...props} 
+                                className={`mb-6 wrap-break-word text-left text-base leading-snug text-gray-700 md:text-xl whitespace-normal ${isRef || isSectionHeader ? 'indent-0 text-sm md:text-base opacity-80 border-l-2 border-gray-100 pl-4 py-2 bg-gray-50/20 rounded-r-lg' : 'indent-8 font-medium'}`}
+                              >
+                                {children}
+                              </p>
+                            );
+                          }
                         },
                         ul: {
                           component: 'ul',
                           props: {
-                            className: 'mb-8 wrap-break-word space-y-5 pl-10 text-gray-700 list-disc',
+                            className: 'mb-8 wrap-break-word space-y-4 pl-10 text-gray-700 list-disc',
                           },
                         },
                         ol: {
                           component: 'ol',
                           props: {
-                            className: 'mb-8 wrap-break-word space-y-5 pl-10 text-gray-700 list-decimal',
+                            className: 'mb-8 wrap-break-word space-y-4 pl-10 text-gray-700 list-decimal',
                           },
                         },
                         li: {
                           component: 'li',
                           props: {
-                            className: 'wrap-break-word pl-2 text-base leading-relaxed md:text-xl marker:font-bold marker:text-blue-600',
+                            className: 'wrap-break-word pl-2 text-base leading-relaxed md:text-xl marker:font-bold marker:text-blue-500',
                           },
                         },
                       code: {
@@ -779,7 +916,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                               if (isChart) {
                                 const chartData = JSON.parse(cleanJson);
                                 return (
-                                  <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
+                                  <div className="my-10 p-4 md:p-8 bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden hover:shadow-2xl transition-all bg-linear-to-br from-white to-blue-50/20">
                                     <ChartRenderer chartData={chartData} />
                                   </div>
                                 );
@@ -788,7 +925,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                               if (isTable) {
                                 const tableData = JSON.parse(cleanJson);
                                 return (
-                                  <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
+                                  <div className="my-10 p-4 md:p-8 bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden hover:shadow-2xl transition-all bg-linear-to-br from-white to-blue-50/20">
                                     <TableRenderer tableData={tableData} />
                                   </div>
                                 );
@@ -802,8 +939,8 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                       },
                       table: { 
                         component: ({ children, ...props }: any) => (
-                          <div className="my-14 w-full overflow-x-auto wrap-break-word">
-                            <table className="w-full border-collapse border-2 border-gray-900 shadow-xl rounded-lg table-auto" {...props}>
+                          <div className="my-10 w-full overflow-x-auto wrap-break-word">
+                            <table className="w-full border-collapse border border-gray-200 shadow-md rounded-lg table-auto" {...props}>
                               {children}
                             </table>
                           </div>
@@ -812,25 +949,25 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                         th: {
                           component: 'th',
                           props: {
-                            className: 'bg-white wrap-break-word border border-gray-900 px-4 py-3 text-sm font-bold uppercase text-gray-900 tracking-wider md:text-base align-middle whitespace-normal text-center',
+                            className: 'bg-gray-50/50 wrap-break-word border-b border-gray-200 px-4 py-3 text-sm font-bold uppercase text-gray-700 tracking-wider md:text-base align-middle whitespace-normal text-center',
                           },
                         },
                         td: {
                           component: 'td',
                           props: {
-                            className: 'bg-white wrap-break-word border border-gray-900 px-4 py-3 text-sm font-medium leading-relaxed text-gray-800 md:text-base align-middle whitespace-normal',
+                            className: 'bg-white wrap-break-word border-b border-gray-100 px-4 py-3 text-sm font-normal leading-relaxed text-gray-700 md:text-base align-middle whitespace-normal',
                           },
                         },
                         strong: {
                           component: 'strong',
                           props: {
-                            className: 'wrap-break-word rounded bg-yellow-50/50 px-1 font-bold text-gray-900',
+                            className: 'wrap-break-word font-bold text-gray-900 px-0.5',
                           },
                         },
                         blockquote: {
                           component: 'blockquote',
                           props: {
-                            className: 'mb-12 wrap-break-word rounded-r-2xl border-l-4 border-blue-500 bg-gray-50/60 py-6 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
+                            className: 'mb-10 wrap-break-word rounded-r-xl border-l-[6px] border-blue-400 bg-blue-50/30 py-4 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
                           },
                         },
                         a: {
@@ -849,49 +986,38 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                             const href = (props.href || '').trim();
 
                             // Logic to shorten link display text
-                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost') || displayText.length > 40) {
+                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost') || displayText.length > 30) {
                               try {
-                                // 1. If it's a localhost link (internal file), try to get the 'name' parameter
                                 if (href.includes('localhost') || href.includes('127.0.0.1')) {
                                   const url = new URL(href, 'http://localhost');
                                   const fileName = url.searchParams.get('name');
-                                  if (fileName) {
-                                    displayText = `📄 ${decodeURIComponent(fileName)}`;
-                                  } else {
-                                    displayText = '📄 view-document';
-                                  }
+                                  if (fileName) displayText = `📄 ${decodeURIComponent(fileName)}`;
+                                  else displayText = '📄 document';
                                 } 
-                                // 2. If it's an external link, show only the domain
                                 else if (displayText.startsWith('http')) {
                                   const url = new URL(displayText);
                                   displayText = url.hostname.replace('www.', '');
                                 }
-                                // 3. Fallback: If href is http but label is not, and label is too long
-                                else if (href.startsWith('http') && displayText.length > 40) {
+                                else if (href.startsWith('http') && displayText.length > 30) {
                                   const url = new URL(href);
-                                  displayText = `🔗 ${url.hostname.replace('www.', '')}`;
+                                  displayText = `🔗 ${url.hostname.replace('www', '')}`;
                                 }
                               } catch (e) {
-                                // If parsing fails, just truncate long text
-                                if (displayText.length > 30) {
-                                  displayText = displayText.substring(0, 27) + '...';
-                                }
+                                if (displayText.length > 20) displayText = displayText.substring(0, 17) + '...';
                               }
                             }
                             
-                            // Prevent [object Object] by ensuring we don't accidentally pass an object as text
-                            if (typeof displayText !== 'string') {
-                              displayText = 'Link';
-                            }
+                            if (typeof displayText !== 'string') displayText = 'Link';
 
                             return (
                               <a 
                                 {...props} 
-                                className="inline-block text-blue-600 hover:text-blue-800 underline transition-all cursor-pointer text-[13px] mt-1 opacity-90 hover:opacity-100 font-medium break-all max-w-full"
-                                title={rawText} // Show full URL/text on hover
+                                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 underline underline-offset-4 transition-all opacity-95 hover:opacity-100 font-medium break-all max-w-full"
+                                title={rawText}
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
+                                <FiExternalLink className="text-[10px] flex-shrink-0" />
                                 {displayText}
                               </a>
                             );

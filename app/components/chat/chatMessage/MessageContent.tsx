@@ -12,6 +12,7 @@ interface MessageContentProps {
   onComplete?: () => void;
   charts?: any[];
   tables?: any[];
+  maps?: any[];
   codeBlocks?: any[];
 }
 
@@ -21,6 +22,7 @@ export const MessageContent: React.FC<MessageContentProps> = ({
   isNewMessage,
   charts,
   tables,
+  maps,
   codeBlocks,
   onComplete,
 }) => {
@@ -49,7 +51,7 @@ export const MessageContent: React.FC<MessageContentProps> = ({
           speed={5}
           onComplete={onComplete}
           renderContent={(displayed) => (
-            <Markdown charts={charts} tables={tables} codeBlocks={codeBlocks}>
+            <Markdown charts={charts} tables={tables} maps={maps} codeBlocks={codeBlocks}>
               {displayed}
             </Markdown>
           )}
@@ -61,7 +63,7 @@ export const MessageContent: React.FC<MessageContentProps> = ({
   // แสดงผลด้วย Markdown ปกติ (สำหรับข้อความเก่า)
   return (
     <div className="text-gray-800">
-      <Markdown charts={charts} tables={tables} codeBlocks={codeBlocks}>
+      <Markdown charts={charts} tables={tables} maps={maps} codeBlocks={codeBlocks}>
         {content}
       </Markdown>
     </div>

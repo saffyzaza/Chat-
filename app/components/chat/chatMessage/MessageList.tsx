@@ -12,6 +12,7 @@ export interface Message {
   images?: string[]; 
   charts?: any[]; 
   tables?: any[]; 
+  maps?: any[];
   codeBlocks?: Array<{ code: string; language: string }>; 
   planContent?: string; 
   isNewMessage?: boolean; 
@@ -157,6 +158,7 @@ export const MessageList = ({ messages, isLoading, loadingStatus, onRegenerate, 
                     isNewMessage={msg.isNewMessage}
                     charts={msg.charts}
                     tables={msg.tables}
+                    maps={msg.maps}
                     codeBlocks={msg.codeBlocks}
                     onComplete={() => {
                       if (onTypingComplete) onTypingComplete(index);
@@ -167,7 +169,7 @@ export const MessageList = ({ messages, isLoading, loadingStatus, onRegenerate, 
 
               {/* สื่อเสริมจะถูกจัดการผ่าน placeholder ใน MessageContent แล้ว */}
               {/* แต่ยังคงเผื่อไว้สำหรับเคสที่ไม่มี placeholder */}
-              {!msg.content?.includes('<ChartAI') && !msg.content?.includes('<TableAI') && !msg.content?.includes('<CodeBlockAI') && (
+              {!msg.content?.includes('<ChartAI') && !msg.content?.includes('<TableAI') && !msg.content?.includes('<MapAI') && !msg.content?.includes('<CodeBlockAI') && (
                 <div className="space-y-3">
                   {msg.images && msg.images.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">

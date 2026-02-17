@@ -4,20 +4,117 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FiDownload } from 'react-icons/fi';
 
 interface ChartRendererProps {
-  chartData: {
-    type: 'bar' | 'line' | 'pie' | 'doughnut';
-    title?: string;
+  chartData: any;
+}
+
+type ChartType = 'bar' | 'line' | 'pie' | 'doughnut';
+
+type NormalizedChart = {
+  type: ChartType;
+  title?: string;
+  data: {
+    labels: string[];
+    datasets: Array<{
+      label?: string;
+      data: Array<number | null>;
+      backgroundColor?: string | string[];
+      borderColor?: string | string[];
+      hoverBackgroundColor?: string | string[];
+      [key: string]: any;
+    }>;
+  };
+  options?: any;
+};
+
+function toNumeric(value: any): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/,/g, '').replace(/%/g, '').trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function normalizeChartData(input: any): NormalizedChart | null {
+  if (!input || typeof input !== 'object') return null;
+
+  const normalizedType = String(input.type || '').toLowerCase();
+  const fallbackType = String(input.chartType || '').toLowerCase();
+  const type = (normalizedType === 'chart' ? fallbackType : normalizedType) as ChartType;
+  if (!['bar', 'line', 'pie', 'doughnut'].includes(type)) return null;
+
+  const nestedData = input.data && typeof input.data === 'object' ? input.data : null;
+  const rawLabels = Array.isArray(nestedData?.labels)
+    ? nestedData.labels
+    : Array.isArray(input.labels)
+      ? input.labels
+      : [];
+
+  const rawDatasets = Array.isArray(nestedData?.datasets)
+    ? nestedData.datasets
+    : Array.isArray(input.datasets)
+      ? input.datasets
+      : [];
+
+  let datasets: any[] = [];
+  let labels = rawLabels.map((label: any) => String(label));
+
+  if (Array.isArray(rawDatasets) && rawDatasets.length > 0) {
+    datasets = rawDatasets.map((dataset: any) => ({
+      ...dataset,
+      label: typeof dataset?.label === 'string' ? dataset.label : 'ข้อมูล',
+      data: Array.isArray(dataset?.data)
+        ? dataset.data.map((value: any) => toNumeric(value))
+        : [],
+    }));
+  } else if (Array.isArray(input.data)) {
+    const rawItems = input.data;
+
+    if (rawItems.length > 0 && typeof rawItems[0] === 'object' && !Array.isArray(rawItems[0])) {
+      const inferredLabels: string[] = [];
+      const inferredValues: Array<number | null> = [];
+
+      for (const row of rawItems) {
+        const entries = Object.entries(row || {});
+        const labelEntry = entries.find(([, value]) => typeof value === 'string' && value.trim() !== '');
+        const valueEntry = entries.find(([, value]) => toNumeric(value) !== null);
+
+        inferredLabels.push(String(labelEntry?.[1] ?? `รายการ ${inferredLabels.length + 1}`));
+        inferredValues.push(valueEntry ? toNumeric(valueEntry[1]) : null);
+      }
+
+      labels = inferredLabels;
+      datasets = [{
+        label: typeof input.title === 'string' && input.title.trim() ? input.title : 'ข้อมูล',
+        data: inferredValues,
+      }];
+    } else {
+      labels = rawItems.map((_: any, index: number) => String(index + 1));
+      datasets = [{
+        label: typeof input.title === 'string' && input.title.trim() ? input.title : 'ข้อมูล',
+        data: rawItems.map((value: any) => toNumeric(value)),
+      }];
+    }
+  }
+
+  if (!Array.isArray(datasets) || datasets.length === 0) return null;
+
+  if (labels.length === 0) {
+    const maxLen = datasets.reduce((acc: number, ds: any) => Math.max(acc, Array.isArray(ds.data) ? ds.data.length : 0), 0);
+    labels = Array.from({ length: maxLen }, (_, index) => String(index + 1));
+  }
+
+  return {
+    type,
+    title: typeof input.title === 'string' ? input.title : undefined,
     data: {
-      labels: string[];
-      datasets: Array<{
-        label: string;
-        data: number[];
-        backgroundColor?: string | string[];
-        borderColor?: string | string[];
-        hoverBackgroundColor?: string | string[];
-      }>;
-    };
-    options?: any;
+      labels,
+      datasets,
+    },
+    options: input.options,
   };
 }
 
@@ -25,6 +122,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartInstanceRef = useRef<any>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const normalizedChart = normalizeChartData(chartData);
 
   // ฟังก์ชันสำหรับ export รูปกราฟ
   const handleExportImage = async () => {
@@ -39,8 +137,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
       const canvas = canvasRef.current;
       canvas.toBlob((blob) => {
         if (blob) {
-          // สร้างชื่อไฟล์จากชื่อกราฟหรือใช้ค่าเริ่มต้น
-          const title = chartData.title || chartData.options?.plugins?.title?.text || 'chart';
+          const title = normalizedChart?.title || normalizedChart?.options?.plugins?.title?.text || 'chart';
           const filename = `${title.replace(/[^a-zA-Z0-9ก-๙\s]/g, '_')}_${Date.now()}.png`;
           
           // ดาวน์โหลดไฟล์
@@ -98,14 +195,12 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
       const Chart = (window as any).Chart;
       const ChartDataLabels = (window as any).ChartDataLabels;
 
-      // ตรวจสอบความพร้อมของข้อมูล
-      if (!chartData?.data || !chartData?.type) {
+      if (!normalizedChart?.data || !normalizedChart?.type) {
         console.warn('ChartRenderer: chartData or required properties are missing', chartData);
         return;
       }
 
-      // สร้าง Deep Copy ของข้อมูลเพื่อป้องกันการ mutation prop โดยตรง
-      const clonedData = JSON.parse(JSON.stringify(chartData.data));
+      const clonedData = JSON.parse(JSON.stringify(normalizedChart.data));
       
       // ตรวจสอบความถูกต้องของโครงสร้างสถิติ
       if (clonedData && clonedData.datasets) {
@@ -121,7 +216,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
           };
 
           // ปรับแต่งเพิ่มเติมสำหรับ Line Chart
-          if (chartData.type === 'line') {
+          if (normalizedChart.type === 'line') {
             const defaultColor = '#3b82f6';
             const borderColor = (Array.isArray(ds.borderColor) ? ds.borderColor[0] : ds.borderColor) || defaultColor;
             return {
@@ -144,11 +239,11 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
       // 1. เตรียม Plugin Defaults
       const defaultDatalabels = {
         color: (context: any) => {
-          if (chartData.type === 'pie' || chartData.type === 'doughnut') return '#fff';
+          if (normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut') return '#fff';
           return '#444'; 
         },
         display: (context: any) => {
-          if (chartData.type === 'pie' || chartData.type === 'doughnut') {
+          if (normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut') {
             const dataset = context.chart.data.datasets[0];
             const total = dataset.data.reduce((acc: number, val: number) => acc + (val || 0), 0);
             const value = dataset.data[context.dataIndex];
@@ -162,7 +257,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
         },
         formatter: (value: any, context: any) => {
           if (value === null || value === undefined) return '';
-          if (chartData.type === 'pie' || chartData.type === 'doughnut') {
+          if (normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut') {
             const label = context.chart.data.labels?.[context.dataIndex] || '';
             const dataset = context.chart.data.datasets[0];
             const total = dataset.data.reduce((acc: number, val: number) => acc + (val || 0), 0);
@@ -172,8 +267,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
           return value;
         },
         textAlign: 'center' as const,
-        anchor: (context: any) => (chartData.type === 'bar' || chartData.type === 'line') ? 'end' : 'center',
-        align: (context: any) => (chartData.type === 'bar' || chartData.type === 'line') ? 'top' : 'center',
+        anchor: (context: any) => (normalizedChart.type === 'bar' || normalizedChart.type === 'line') ? 'end' : 'center',
+        align: (context: any) => (normalizedChart.type === 'bar' || normalizedChart.type === 'line') ? 'top' : 'center',
         offset: 4,
       };
 
@@ -188,8 +283,8 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
           }
         },
         title: {
-          display: !!chartData.options?.plugins?.title?.text,
-          text: chartData.options?.plugins?.title?.text,
+          display: !!(normalizedChart.options?.plugins?.title?.text || normalizedChart.title),
+          text: normalizedChart.options?.plugins?.title?.text || normalizedChart.title,
           font: { size: 16, weight: 'bold' },
           padding: { bottom: 20 }
         },
@@ -203,7 +298,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
       // 2. สร้าง Chart
       // @ts-ignore
       chartInstanceRef.current = new Chart(ctx, {
-        type: chartData.type,
+        type: normalizedChart.type,
         data: clonedData,
         plugins: ChartDataLabels ? [ChartDataLabels] : [],
         options: {
@@ -217,7 +312,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
               right: 25
             }
           },
-          scales: (chartData.type === 'pie' || chartData.type === 'doughnut') 
+          scales: (normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut') 
             ? {} 
             : {
               x: {
@@ -234,13 +329,13 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
                 grid: { color: 'rgba(0,0,0,0.05)' },
               },
             },
-          ...(chartData.options || {}), // อนุญาตให้ override top-level keys
+          ...(normalizedChart.options || {}),
           plugins: {
             ...defaultPlugins,
-            ...((chartData.options?.plugins) || {}),
+            ...((normalizedChart.options?.plugins) || {}),
             datalabels: {
               ...defaultDatalabels,
-              ...((chartData.options?.plugins?.datalabels) || {}),
+              ...((normalizedChart.options?.plugins?.datalabels) || {}),
             }
           }
         } as any,
@@ -252,7 +347,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
         chartInstanceRef.current.destroy();
       }
     };
-  }, [chartData]);
+  }, [chartData, normalizedChart]);
 
   return (
     <div className="chart-container bg-white p-4 md:p-6 rounded-lg shadow-sm border border-gray-200 my-4 w-full flex flex-col">

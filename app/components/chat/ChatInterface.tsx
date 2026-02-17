@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation';
 import { Message, MessageList } from './chatMessage/MessageList';
 import { ChatInputArea } from './inputArea/ChatInputArea';
 import { useChatHistory } from '../../hooks/useChatHistory';
@@ -68,6 +69,7 @@ const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: stri
 
 // --- Component หลัก ---
 export const ChatInterface = () => {
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string>('');
@@ -195,6 +197,140 @@ export const ChatInterface = () => {
     return t.trim();
   };
 
+  const simplifyReferenceLinks = (textRaw: string): string => {
+    let t = textRaw || '';
+    
+    // 1. จัดการเรื่องช่องว่างระหว่าง ] ( ที่ AI มักจะเผลอใส่ ทำให้ Markdown ไม่ทำงาน
+    // ค้นหา [ข้อความ] (URL) และแก้เป็น [ข้อความ](URL)
+    t = t.replace(/\[([^\]]+)\]\s+\((https?:\/\/[^\s)]+)\)/g, '[$1]($2)');
+
+    // 2. จัดการเรื่องลิงก์ซ้อน (บางครั้ง AI ใส่ URL ในวงเล็บซ้ำ)
+    t = t.replace(/\(\((https?:\/\/[^\s)]+)\)\)/g, '($1)');
+
+    return t;
+  };
+
+  const enforceReferenceProducer = (textRaw: string, producerByIndex: string[]): string => {
+    const text = textRaw || '';
+    if (!text) return text;
+
+    const lines = text.split(/\r?\n/);
+    const normalized = lines.map((line) => {
+      // คัดกรองเฉพาะบรรทัดที่เป็นรายการอ้างอิงท้ายคำตอบ เช่น [1] ... หรือ เอกสารอ้างอิง: [1] ...
+      const match = line.match(/(?:^|:)\s*\[(\d+)\]\s*(.+)$/);
+      if (!match) return line;
+      
+      // ถ้าบรรทัดนี้ยาวเกินไป หรือ สั้นเกินไป (เช่น เป็นแค่การอ้างอิงในเนื้อหา [1]) ให้ข้าม
+      if (line.length > 800 || match[2].trim().length < 10) return line;
+
+      // ถ้ามีการระบุ "ผู้จัดทำ" หรือ "Producer" อยู่แล้ว ไม่ต้องเติมซ้ำ
+      if (/ผู้จัดทำ\s*:|producer\s*:/i.test(line)) return line;
+
+      const index = parseInt(match[1], 10);
+      if (isNaN(index) || index < 1) return line;
+
+      const producer = producerByIndex[index - 1];
+      // หากไม่มีข้อมูลผู้จัดทำจริงๆ ให้ข้ามการเติม (ดีกว่าแสดงว่า "ไม่ระบุ")
+      if (!producer || producer === 'ไม่ระบุผู้แต่ง' || producer === 'ไม่ระบุ') {
+        return line;
+      }
+
+      return `${line.trim()} — ผู้จัดทำ: ${producer}`;
+    });
+
+    return normalized.join('\n');
+  };
+
+  const removeDocumentReferenceSection = (textRaw: string): string => {
+    let t = textRaw || '';
+    t = t.replace(/\n{0,2}(?:\*\*)?(?:เอกสารอ้างอิง(?:เชิงวิชาการ)?|References?)(?:\*\*)?\s*:?[\s\S]*$/i, '');
+    return t.trim();
+  };
+
+  const buildSourceSummary = (fileInfos: any[], apiEndpoints: string[]): string => {
+    if (fileInfos.length === 0 && apiEndpoints.length === 0) return '';
+    
+    const lines: string[] = ['\n---\n**แหล่งข้อมูลอ้างอิง (Source Summary)**:'];
+
+    if (fileInfos.length > 0) {
+      lines.push(`- 📑 **ไฟล์ที่ใช้ประมวลผล:** ${fileInfos.length} ไฟล์`);
+      fileInfos.forEach((info, index) => {
+        const title = info.apa?.projectInfo?.titleThai || info.apa?.titleThai || info.name || 'ไม่ระบุชื่อไฟล์';
+        const displayTitle = title.length > 100 ? title.substring(0, 100) + '...' : title;
+        lines.push(`  [${index + 1}] ${displayTitle} (${info.name})`);
+      });
+    }
+
+    if (apiEndpoints.length > 0) {
+      const friendlyApis = apiEndpoints.map(api => {
+        const name = api.split('/').pop();
+        if (name === 'accident') return 'ฐานข้อมูลอุบัติเหตุ';
+        if (name === 'chatweather') return 'ข้อมูลพยากรณ์อากาศ';
+        return name;
+      });
+      lines.push(`- 🌐 **ระบบข้อมูลภายนอก:** ${friendlyApis.join(', ')}`);
+    }
+
+    return '\n' + lines.join('\n');
+  };
+
+  const readGeminiSseText = async (response: Response): Promise<string> => {
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(`Gemini API failed: ${response.status} - ${errorData?.error?.message || 'Unknown error'}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return '';
+
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let accumulated = '';
+
+    const appendFromSseEvent = (eventBlock: string) => {
+      const lines = eventBlock
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+
+        try {
+          const json = JSON.parse(payload);
+          const parts = json?.candidates?.[0]?.content?.parts;
+          const chunkText = Array.isArray(parts)
+            ? parts.map((part: any) => part?.text || '').join('')
+            : '';
+          if (chunkText) accumulated += chunkText;
+        } catch {
+          // ignore malformed chunk
+        }
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() || '';
+
+      for (const eventBlock of events) {
+        appendFromSseEvent(eventBlock);
+      }
+    }
+
+    if (buffer.trim()) {
+      appendFromSseEvent(buffer);
+    }
+
+    return accumulated.trim();
+  };
+
   /**
    * AI Tool Router: ใช้ AI วิเคราะห์เจตนาของผู้ใช้และเลือกเครื่องมือที่เหมาะสมโดยอัตโนมัติ
    */
@@ -221,7 +357,7 @@ export const ChatInterface = () => {
         - ตอบเฉพาะ "ชื่อเครื่องมือ" หรือ "null" เท่านั้น ห้ามมีคำอธิบายอื่นเด็ดขาด
       `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -230,9 +366,7 @@ export const ChatInterface = () => {
         })
       });
 
-      if (!response.ok) return null;
-      const result = await response.json();
-      const answer = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'null';
+      const answer = await readGeminiSseText(response) || 'null';
       
       if (answer === 'null' || answer === '""') return null;
       return answer.replace(/["']/g, ''); // ลบเครื่องหมายคำพูดถ้ามี
@@ -240,6 +374,282 @@ export const ChatInterface = () => {
       console.error('AI Tool Detection Error:', e);
       return null;
     }
+  };
+
+  type AdminApiCallPlan = {
+    endpoint: 'accident' | 'chatweather' | 'thaijo';
+    payload: Record<string, any>;
+  };
+
+  type AdminApiIntentDecision = {
+    useAccident?: boolean;
+    useChatweather?: boolean;
+    useThaijo?: boolean;
+    accidentMessage?: string;
+    thaijoTerm?: string;
+    thaijoPage?: number;
+    thaijoSize?: number;
+    lat?: number;
+    lon?: number;
+    days?: number;
+  };
+
+  const aiPlanAdminApiCalls = async (text: string): Promise<AdminApiCallPlan[]> => {
+    try {
+      const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+      if (!API_KEY) return [];
+
+      const planningPrompt = `
+คุณคือ AI Router สำหรับเลือก API ภายในระบบ โดยต้องตอบ JSON เท่านั้น
+
+ให้วิเคราะห์คำถามผู้ใช้ และตัดสินใจเลือกใช้ API ที่เหมาะสม รวมถึงพารามิเตอร์ต่างๆ
+ตอบ "JSON object" รูปแบบนี้เท่านั้น:
+{
+  "useAccident": false,
+  "useChatweather": false,
+  "useThaijo": false,
+  "accidentMessage": "",
+  "thaijoTerm": "",
+  "thaijoPage": 1,
+  "thaijoSize": 3,
+  "lat": 13.7563,
+  "lon": 100.5018,
+  "days": 7
+}
+
+เงื่อนไขสำคัญ:
+- useAccident = true สำหรับคำถามเกี่ยวกับสถิติอุบัติเหตุ/ความปลอดภัยบนถนน
+- useChatweather = true สำหรับสภาพอากาศ
+- useThaijo = true สำหรับคำถามวิชาการ/วิจัย (เช่น ค้นหางานวิจัย, หาผู้เชี่ยวชาญ, ข้อมูลวิชาการจากวารสารไทย)
+- ถ้า useThaijo=true:
+  - thaijoTerm: คำสำคัญสั้นๆ (Key phrase) เช่น "เบาหวาน", "บุหรี่มือสอง", "อุบัติเหตุ"
+  - thaijoPage: ปกติคือ 1
+  - thaijoSize: จำนวนบทความที่ต้องการ (ปกติคือ 3-5 ถ้าถามแบบภาพรวม, แต่ถ้าขอดูเยอะๆ หรือระบุว่าขอสิบรายการ ให้เพิ่มเป็น 10-20 ตามความเหมาะสม ไม่เกิน 30) ถ้าทำนโยบาย เขียนแผนงาน ให้ใส่เป็น 5-10 เพื่อให้ได้ข้อมูลหลากหลาย
+- ถ้า useAccident=true ให้ใส่ accidentMessage เป็นคำถามเต็มของผู้ใช้
+- ถ้า useChatweather=true ให้กำหนด lat/lon ให้เหมาะสม และ days ช่วง 1-14 (default 7)
+- ตอบเฉพาะ JSON object เท่านั้น ห้ามมีคำอธิบาย
+
+ตัวอย่างคำถามที่ควร useThaijo=true:
+- "หางานวิจัยเรื่องสุขภาพจิตวัยรุ่นให้หน่อย" -> size: 3
+- "ขอข้อมูลสถิติงานวิจัยเกี่ยวกับโซเดียม 10 รายการ" -> size: 10
+- "รวมบทความวิจัยเรื่องอุบัติเหตุทางถนน 5 หัวข้อล่าสุด" -> size: 5
+
+ข้อมูลพิกัดแนะนำ (ใช้เมื่อผู้ใช้ระบุจังหวัด):
+- อุบลราชธานี: lat 15.2447, lon 104.8472
+- กรุงเทพฯ: lat 13.7563, lon 100.5018
+- เชียงใหม่: lat 18.7883, lon 98.9853
+- ขอนแก่น: lat 16.4322, lon 102.8236
+- สงขลา: lat 7.1756, lon 100.6143
+
+คำถามผู้ใช้: "${text}"
+      `;
+
+      const parseDecision = (rawText: string): AdminApiIntentDecision | null => {
+        const raw = (rawText || '').trim();
+        if (!raw) return null;
+
+        const cleaned = raw
+          .replace(/^```json\s*/i, '')
+          .replace(/^```\s*/i, '')
+          .replace(/```$/i, '')
+          .trim();
+
+        const firstBrace = cleaned.indexOf('{');
+        const lastBrace = cleaned.lastIndexOf('}');
+        const jsonText = firstBrace >= 0 && lastBrace > firstBrace
+          ? cleaned.slice(firstBrace, lastBrace + 1)
+          : cleaned;
+
+        try {
+          const parsed = JSON.parse(jsonText);
+          if (!parsed || typeof parsed !== 'object') return null;
+          return parsed as AdminApiIntentDecision;
+        } catch {
+          return null;
+        }
+      };
+
+      const callPlannerOnce = async (prompt: string, temperature: number): Promise<AdminApiIntentDecision | null> => {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              response_mime_type: 'application/json',
+              temperature,
+            }
+          })
+        });
+
+        const raw = await readGeminiSseText(response) || '{}';
+        return parseDecision(raw);
+      };
+
+      let decision = await callPlannerOnce(planningPrompt, 0.1);
+
+      if (!decision) {
+        const retryPrompt = `${planningPrompt}\n\nย้ำอีกครั้ง: ตอบเฉพาะ JSON object ตาม schema เดิมเท่านั้น`;
+        decision = await callPlannerOnce(retryPrompt, 0);
+      }
+
+      if (!decision) return [];
+
+      const normalizedCalls: AdminApiCallPlan[] = [];
+
+      if (decision.useAccident === true) {
+        normalizedCalls.push({
+          endpoint: 'accident',
+          payload: {
+            message: String(decision.accidentMessage || text),
+          },
+        });
+      }
+
+      if (decision.useThaijo === true) {
+        console.log(`🔎 AI Planner Decision -> ThaiJO: term="${decision.thaijoTerm}", page=${decision.thaijoPage}, size=${decision.thaijoSize}`);
+        normalizedCalls.push({
+          endpoint: 'thaijo',
+          payload: {
+            term: String(decision.thaijoTerm || text).substring(0, 50),
+            page: Number(decision.thaijoPage || 1),
+            size: Math.min(30, Math.max(1, Number(decision.thaijoSize || 3))),
+            strict: true,
+            title: true,
+            author: true,
+            abstract: true,
+          },
+        });
+      }
+
+      if (decision.useChatweather === true) {
+        const latRaw = Number(decision.lat);
+        const lonRaw = Number(decision.lon);
+        const daysRaw = Number(decision.days ?? 7);
+
+        const lat = Number.isFinite(latRaw) ? latRaw : 13.7563;
+        const lon = Number.isFinite(lonRaw) ? lonRaw : 100.5018;
+        const days = Number.isFinite(daysRaw) ? Math.min(14, Math.max(1, Math.floor(daysRaw))) : 7;
+
+        normalizedCalls.push({
+          endpoint: 'chatweather',
+          payload: { lat, lon, days },
+        });
+      }
+
+      console.log('🧠 AI planner decision:', decision);
+      return normalizedCalls;
+    } catch (error) {
+      console.error('AI API planner error:', error);
+      return [];
+    }
+  };
+
+  const runPlannedAdminApis = async (plans: AdminApiCallPlan[]): Promise<string> => {
+    if (!plans.length) return '';
+
+    const dedupedPlans = plans.filter((plan, index, arr) =>
+      index === arr.findIndex((item) => item.endpoint === plan.endpoint)
+    );
+
+    const results = await Promise.all(
+      dedupedPlans.map(async (plan) => {
+        try {
+          const endpoint = `/api/admin/${plan.endpoint}`;
+          console.log('📡 AI dispatch API:', {
+            endpoint,
+            payload: plan.payload,
+          });
+
+          const response = await fetchWithAuth(endpoint, {
+            method: 'POST',
+            body: JSON.stringify(plan.payload),
+          });
+
+          const data = await response.json().catch(() => ({}));
+          console.log('✅ AI API response:', {
+            endpoint,
+            ok: response.ok,
+            status: response.status,
+          });
+
+          return {
+            endpoint: plan.endpoint,
+            payload: plan.payload,
+            ok: response.ok,
+            status: response.status,
+            data,
+          };
+        } catch (error: any) {
+          console.error('❌ AI API request failed:', {
+            endpoint: plan.endpoint,
+            error: error?.message || 'Unknown error',
+          });
+
+          return {
+            endpoint: plan.endpoint,
+            payload: plan.payload,
+            ok: false,
+            status: 0,
+            data: { message: error?.message || 'Unknown error' },
+          };
+        }
+      })
+    );
+
+    const compact = results.map((result) => {
+      if (result.endpoint === 'accident') {
+        return {
+          endpoint: result.endpoint,
+          ok: result.ok,
+          status: result.status,
+          sql: result.data?.sql,
+          reply: result.data?.reply,
+          total: result.data?.total,
+          rows: Array.isArray(result.data?.rows) ? result.data.rows.slice(0, 30) : [],
+          message: result.data?.message,
+        };
+      }
+
+      if (result.endpoint === 'thaijo') {
+        const thaijoData = result.data?.result || result.data?.results || result.data || {};
+        const articles = Array.isArray(thaijoData) 
+          ? thaijoData 
+          : (thaijoData?.articles || thaijoData?.results || thaijoData?.result || []);
+          
+        const requestedSize = result.payload?.size || 3;
+        
+        return {
+          endpoint: result.endpoint,
+          ok: result.ok,
+          status: result.status,
+          term: result.payload?.term,
+          articles: Array.isArray(articles) ? articles.slice(0, Math.max(3, requestedSize)) : [],
+          message: result.data?.message,
+        };
+      }
+
+      return {
+        endpoint: result.endpoint,
+        ok: result.ok,
+        status: result.status,
+        lat: result.data?.lat,
+        lon: result.data?.lon,
+        days: result.data?.days,
+        summary: result.data?.summary,
+        table: result.data?.table,
+        reply: result.data?.reply,
+        message: result.data?.message,
+      };
+    });
+
+    return [
+      '## ADMIN_API_RESULTS',
+      JSON.stringify(compact),
+      '## END_ADMIN_API_RESULTS',
+      '',
+      'ข้อกำหนด: หากมี ADMIN_API_RESULTS ให้เรียบเรียงคำตอบโดยยึดข้อมูลจากผล API นี้เป็นหลัก และถ้าบาง endpoint ล้มเหลวให้แจ้งเหตุผลสั้นๆ',
+    ].join('\n');
   };
 
   // Request throttling: เก็บเวลาของ request ล่าสุด
@@ -254,7 +664,7 @@ export const ChatInterface = () => {
     }
     
     try {
-      setLoadingStatus('🔍 AI กำลังวิเคราะห์และเลือกเอกสารที่เกี่ยวข้อง...');
+      setLoadingStatus('สสส กำลังวิเคราะห์เอกสารที่เกี่ยวข้อง...');
       const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
       
       // เตรียมข้อมูล metadata สำหรับให้ AI ตัดสินใจ (ลดข้อมูลเพื่อประหยัด Token)
@@ -263,7 +673,10 @@ export const ChatInterface = () => {
         author: ref.apa?.projectInfo?.responsibleAuthor || ref.apa?.projectInfo?.authorNames || 'ไม่ระบุ',
         organization: ref.apa?.projectInfo?.organization || 'ไม่ระบุ',
         abstract: (ref.apa?.abstract || '').substring(0, 300) + '...',
-        fileName: ref.meta?.file_name
+        projectInfo: ref.apa?.projectInfo || null,
+        researchers: Array.isArray(ref.apa?.researchers) ? ref.apa.researchers : [],
+        fileName: ref.meta?.file_name,
+        filePath: ref.meta?.file_path || '/'
       }));
 
       // เรียก Gemini Flash (ประหยัดค่าใช้จ่ายและเร็ว) เพื่อเลือกไฟล์
@@ -274,16 +687,24 @@ export const ChatInterface = () => {
         คำถามผู้ใช้: "${query}"
         
         กติกาการเลือก:
-        1. เลือกเฉพาะไฟล์ที่มีเนื้อหาสามารถตอบคำถามผู้ใช้ได้จริง
-        2. เลือกมาไม่เกิน 3 ไฟล์ที่สำคัญที่สุด
-        3. ตอบกลับในรูปแบบ JSON Array ของชื่อไฟล์ (fileName) เท่านั้น เช่น ["research_paper_01.pdf", "health_report.pdf"]
-        4. หากไม่มีไฟล์ใดเกี่ยวข้องเลย ให้ตอบ [] เท่านั้น ห้ามอธิบายเพิ่ม
+        1. เลือกเฉพาะไฟล์ที่มีหัวข้อและเนื้อหา "ตรงประเด็นหลัก" (Primary Topic) ของคำถามเท่านั้น
+        2. "ห้าม" เลือกไฟล์ที่แค่มีคำคล้ายกัน แต่ประเด็นหลักเป็นคนละเรื่อง (เช่น ถามเรื่อง "ซึมเศร้า" แต่ไฟล์หลักเป็น "เบาหวาน" ที่แค่มีบทคัดย่อกล่าวถึงเล็กน้อย ห้ามเลือกเด็ดขาด)
+        3. เลือกมาไม่เกิน 10 ไฟล์ที่สำคัญที่สุด เอาเนื้อหาที่ตรงที่สุดเป็นหลัก ไม่ใช่แค่เกี่ยวข้องกว้างๆ
+        4. ตอบกลับในรูปแบบ JSON Array ของชื่อไฟล์ (fileName) เท่านั้น เช่น ["research_paper_01.pdf", "health_report.pdf"]
+        5. หากไม่มีไฟล์ใดเกี่ยวข้องโดยตรงเลย ให้ตอบ [] เท่านั้น ห้ามอธิบายเพิ่ม
+        6. ให้พิจารณาความสอดคล้องตามนี้เป็นลำดับสำคัญ:
+            - ประเด็นหลักตรงกัน (เช่น สุขภาพจิต, โรคเรื้อรัง, อุบัติเหตุ)
+            - กลุ่มเป้าหมายตรงกัน (เช่น ผู้สูงอายุ, เด็ก, วัยทำงาน)
+            - พื้นที่ระบุไว้ตรงกัน
+        7. ห้ามเลือกไฟล์ที่แค่ "เกี่ยวข้องกว้างๆ" เช่น การส่งเสริมสุขภาพทั่วไป หากคำถามเจาะจงเรื่องโรค
+        8. ถ้าไม่พบไฟล์ที่ตรงกับ Primary Topic จริงๆ ให้ตอบ [] ทันที ห้ามพยายามเลือกไฟล์อื่นมาทดแทน
+        9. เรียงไฟล์จาก "ตรงที่สุด" ไป "รองลงมา"
         
         รายการเอกสาร:
         ${JSON.stringify(metadataList)}
       `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -295,14 +716,7 @@ export const ChatInterface = () => {
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('❌ AI Selection API Error:', response.status, errorData);
-        return []; // คืนค่าว่างถ้า API พลาด เพื่อให้แชททำงานต่อได้
-      }
-      
-      const result = await response.json();
-      const aiResponseText = result.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+      const aiResponseText = await readGeminiSseText(response) || '[]';
       let selectedFileNames: string[] = [];
       try {
         selectedFileNames = JSON.parse(aiResponseText);
@@ -314,48 +728,27 @@ export const ChatInterface = () => {
         return [];
       }
 
-      setLoadingStatus(`📎 AI เลือกเอกสารที่เกี่ยวข้องได้ ${selectedFileNames.length} รายการ กำลังโหลดข้อมูล...`);
+      setLoadingStatus(`สสส เจอข้อมูล ${selectedFileNames.length} รายการ`);
 
-      // ดาวน์โหลดไฟล์ที่ AI เลือกและแปลงเป็นข้อมูลพร้อมใช้
+      // โหมดเร็ว: ส่งเฉพาะ metadata + URL ของไฟล์ที่เลือก (ไม่ดาวน์โหลด PDF ทุกครั้ง)
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const fileInfos = await Promise.all(
-        selectedFileNames.map(async (fileName: string) => {
-          try {
-            const cleanName = fileName.replace(/^\/+/g, '');
-            // ค้นหา metadata เดิม
-            const originalRef = allReferences.find(r => r.meta?.file_name === fileName);
-            const filePath = originalRef?.meta?.file_path || '%2F';
-            
-            // ดาวน์โหลดไฟล์จาก Minio
-            const downloadUrl = `/api/files/download?path=${encodeURIComponent(filePath)}&name=${encodeURIComponent(cleanName)}`;
-            const fileRes = await fetchWithAuth(downloadUrl);
-            
-            let pdfBase64 = null;
-            if (fileRes.ok) {
-              const blob = await fileRes.blob();
-              pdfBase64 = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(blob);
-              });
-            }
-            
-            return {
-              name: cleanName,
-              apa: originalRef?.apa || null,
-              url: `${origin}/admin/view-pdf?path=${encodeURIComponent(filePath)}&name=${encodeURIComponent(cleanName)}`,
-              pdfBase64: pdfBase64
-            };
-          } catch (error) {
-            console.error(`❌ Error processing AI selected file ${fileName}:`, error);
-            return null;
-          }
+      const fileInfos = selectedFileNames
+        .map((fileName: string) => {
+          const cleanName = fileName.replace(/^\/+/g, '');
+          const originalRef = allReferences.find(r => r.meta?.file_name === fileName);
+          if (!originalRef) return null;
+
+          const filePath = originalRef?.meta?.file_path || '%2F';
+          return {
+            name: cleanName,
+            apa: originalRef?.apa || null,
+            url: `${origin}/admin/view-pdf?path=${encodeURIComponent(filePath)}&name=${encodeURIComponent(cleanName)}`,
+          };
         })
-      );
-      
-      const validFiles = fileInfos.filter(f => f !== null && f.pdfBase64 !== null) as any[];
-      console.log(`✅ Automatically attached ${validFiles.length} files selected by AI`);
-      return validFiles;
+        .filter(Boolean) as any[];
+
+      console.log(`✅ สสส เลือกเอกสารที่เกี่ยวข้องได้ ${fileInfos.length} รายการ (โหมด metadata เร็ว)`);
+      return fileInfos;
     } catch (error) {
       console.error('❌ Error in AI Smart Search:', error);
       return [];
@@ -368,7 +761,8 @@ export const ChatInterface = () => {
     createNewSession,
     addMessageToSession,
     loadSession,
-    deleteSession
+    deleteSession,
+    resetCurrentSession
   } = useChatHistory();
 
   // โหลดรายการเอกสารอ้างอิงทั้งหมดไว้ล่วงหน้า
@@ -453,8 +847,7 @@ export const ChatInterface = () => {
     if (!activationChecked) return;
 
     // ตรวจสอบว่ามี session ID ใน URL หรือไม่
-    const params = new URLSearchParams(window.location.search);
-    const sessionId = params.get('session');
+    const sessionId = searchParams.get('session');
 
     if (sessionId) {
       console.log('🔍 Loading session from URL:', sessionId);
@@ -473,6 +866,7 @@ export const ChatInterface = () => {
               images: m.images,
               charts: m.charts,
               tables: m.tables,
+              maps: (m as any).maps,
               codeBlocks: m.codeBlocks,
               planContent: m.planContent,
               isNewMessage: false // ข้อความจากประวัติไม่ต้องใช้ TextType animation
@@ -485,20 +879,34 @@ export const ChatInterface = () => {
           if (lastPlanMessage && lastPlanMessage.planContent) {
             setPlanContent(lastPlanMessage.planContent);
             setShowPlanPanel(true);
+          } else {
+            setPlanContent('');
+            setShowPlanPanel(false);
           }
 
           console.log('📝 Set messages to state:', loadedMessages.length, 'messages');
 
-          // Clear URL parameter หลังโหลดเสร็จ (optional - เพื่อให้ URL สะอาด)
-          window.history.replaceState({}, '', '/');
+          // URL parameter จะถูกใช้งานจนกว่าจะเปลี่ยนหน้า
+          // เราไม่ต้อง Clear หรือถ้าจะ Clear ให้แน่ใจว่าไม่ลูป
         } else {
           console.error('❌ Session not found:', sessionId);
+          // ถ้าไม่พบ session ให้ล้างหน้าจอ
+          setMessages([]);
+          setPlanContent('');
+          setShowPlanPanel(false);
         }
       }).catch(error => {
         console.error('❌ Error loading session:', error);
       });
+    } else {
+      // ถ้าไม่มี sessionId ใน URL ให้ล้างหน้าจอเพื่อเตรียม New Chat
+      console.log('✨ Starting new chat (no session ID)');
+      setMessages([]);
+      setPlanContent('');
+      setShowPlanPanel(false);
+      resetCurrentSession();
     }
-  }, [loadSession, activationChecked]);
+  }, [loadSession, activationChecked, searchParams, resetCurrentSession]);
 
   const handleSendChat = async (prompt: string, imageUrls?: string[], files?: File[], selectedTool?: string | null) => {
     // Gate: ถ้ายังไม่ผ่าน activation ให้บล็อกการส่ง
@@ -542,14 +950,31 @@ export const ChatInterface = () => {
     const controller = abortControllerRef.current;
     console.log('📤 Sending chat:', { promptLength: prompt.length, images: imageUrls?.length, files: files?.length });
 
-    // Smart File Search: ค้นหาไฟล์ที่เกี่ยวข้องอัตโนมัติ (ส่งประวัติล่าสุดไปด้วยเพื่อให้ AI รู้บริบท)
+    const optimisticUserMessage: Message = {
+      role: 'user',
+      content: prompt,
+      images: imageUrls && imageUrls.length > 0 ? imageUrls : undefined,
+    };
+    setMessages(prev => [...prev, optimisticUserMessage]);
+
+    // Smart File Search + Tool preflight (รันคู่ขนาน)
     const contextForSearch = messages.length > 0 
       ? `ประวัติการคุย: ${messages.slice(-2).map(m => m.content).join(' | ')}\nคำถามปัจจุบัน: ${prompt}`
       : prompt;
 
-    const autoAttachedFiles = await searchRelevantFiles(contextForSearch);
+    const autoSearchPromise = searchRelevantFiles(contextForSearch);
+
+    const aiToolPromise = selectedTool
+      ? Promise.resolve(selectedTool)
+      : aiDetectTool(prompt);
+
+    const adminPlanPromise = aiPlanAdminApiCalls(prompt);
+
+    const autoAttachedFiles = await autoSearchPromise;
     if (autoAttachedFiles.length > 0) {
       console.log('📎 Auto-attached files:', autoAttachedFiles.map(f => f.name).join(', '));
+    } else {
+      console.log('⏩ Auto file search found no direct match');
     }
 
     // แปลง blob URLs เป็น base64 ถาวรสำหรับแสดงผล (แบบ parallel)
@@ -575,7 +1000,7 @@ export const ChatInterface = () => {
       }
     }
 
-    const userMessage: Message = {
+    const userMessageForStorage: Message = {
       role: 'user',
       content: prompt,
       images: permanentImageUrls.length > 0 ? permanentImageUrls : undefined
@@ -592,19 +1017,10 @@ export const ChatInterface = () => {
 
     // บันทึก user message ลง localStorage (เพิ่ม timestamp)
     await addMessageToSession(sessionId, {
-      ...userMessage,
+      ...userMessageForStorage,
       timestamp: new Date().toISOString()
     });
     console.log('💾 Saved user message to session:', sessionId);
-
-    // เพิ่ม System Prompt เข้าไปใน State ด้วย (เพื่อให้ ChatInputArea ไม่ต้องส่ง)
-    const newMessages: Message[] = [
-      ...messages,
-      userMessage
-    ];
-
-    // ตั้งค่าข้อความที่จะแสดงผลบน UI
-    setMessages(newMessages);
 
     const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
 
@@ -672,21 +1088,9 @@ export const ChatInterface = () => {
       });
     }
     
-    // แนบไฟล์ที่ค้นหาอัตโนมัติจาก Smart Search
+    // ไฟล์ auto-search ใช้เป็น metadata context (ไม่แนบ PDF binary เพื่อให้เริ่มตอบเร็ว)
     if (autoAttachedFiles && autoAttachedFiles.length > 0) {
-      console.log('📎 Attaching auto-searched files to API call...');
-      for (const autoFile of autoAttachedFiles) {
-        if (autoFile.pdfBase64) {
-          const base64Data = autoFile.pdfBase64.split(',')[1];
-          currentParts.push({
-            inlineData: {
-              mimeType: 'application/pdf',
-              data: base64Data
-            }
-          });
-          console.log(`✅ Attached: ${autoFile.name}`);
-        }
-      }
+      console.log('📎 Fast metadata context enabled for auto-selected files');
     }
     
     if (prompt) {
@@ -700,8 +1104,13 @@ export const ChatInterface = () => {
     // --- Automatic Tool Detection (AI Routing) ---
     // ถ้าผู้ใช้ไม่ได้เลือกเครื่องมือมาเอง ให้ระบบช่วยวิเคราะห์จาก Prompt
     let effectiveTool = selectedTool;
+    if (effectiveTool) {
+      console.log('🧰 selectedTool (manual):', effectiveTool);
+    }
+
     if (!effectiveTool) {
-      effectiveTool = await aiDetectTool(prompt);
+      effectiveTool = await aiToolPromise;
+      console.log('🤖 selectedTool (AI detect):', effectiveTool ?? 'null');
       if (effectiveTool) {
         // เปิดแผงด้านข้างสำหรับเครื่องมือที่ต้องการพื้นที่แสดงผลเพิ่มเติม
         if (['เขียนแผนงาน', 'สรุปรายงาน', 'สร้างกราฟ'].includes(effectiveTool)) {
@@ -711,7 +1120,28 @@ export const ChatInterface = () => {
       }
     }
 
-    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller, autoAttachedFiles);
+    console.log('✅ selectedTool (effective):', effectiveTool ?? 'null');
+
+    const plannedAdminCalls = await adminPlanPromise;
+    console.log('🧭 planned admin API calls:', plannedAdminCalls);
+
+    if (plannedAdminCalls.length > 0) {
+      setLoadingStatus('สสส กำลังเรียกใช้ข้อมูลจากระบบภายใน...');
+      const adminApiContext = await runPlannedAdminApis(plannedAdminCalls);
+
+      if (adminApiContext) {
+        const lastMsg = contents[contents.length - 1];
+        const textPart = lastMsg?.parts?.find((part: any) => part.text !== undefined);
+        if (textPart) {
+          textPart.text += `\n\n${adminApiContext}`;
+        } else {
+          lastMsg.parts.push({ text: adminApiContext });
+        }
+      }
+    }
+
+    const usedAdminEndpoints = plannedAdminCalls.map((plan) => `/api/admin/${plan.endpoint}`);
+    await performGeminiRequest(contents, effectiveTool, files, sessionId, controller, autoAttachedFiles, usedAdminEndpoints);
   };
 
   /**
@@ -723,12 +1153,17 @@ export const ChatInterface = () => {
     files?: File[],
     sessionId?: string | null,
     controller?: AbortController,
-    autoAttachedFiles?: any[]
+    autoAttachedFiles?: any[],
+    usedAdminEndpoints: string[] = []
   ) => {
     const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY;
+    console.log('🚀 performGeminiRequest selectedTool:', selectedTool ?? 'null');
 
     try {
-      setLoadingStatus('กำลังระบุหัวข้อและวิเคราะห์เนื้อหา...');
+      setLoadingStatus('สสส กำลังระบุหัวข้อและวิเคราะห์เนื้อหา...');
+      const manualFileCount = files?.length || 0;
+      const autoFileCount = autoAttachedFiles?.length || 0;
+      const totalAttachedFileCount = manualFileCount + autoFileCount;
       const isSpecialTool = !!(selectedTool && [
         'เขียนแผนงาน', 'สร้างกราฟ', 'สรุปรายงาน', 'ขอคำปรึกษา', 'เทียบข้อมูล',
         'A = บทความต้นฉบับ'
@@ -761,7 +1196,7 @@ export const ChatInterface = () => {
         } else if (selectedTool === 'C = สถานการณ์โรค') {
           currentSystemPrompt = PROMPTC;
         }
-      } else if (autoAttachedFiles && autoAttachedFiles.length > 0) {
+      } else if (totalAttachedFileCount > 0) {
         // หากมีการค้นพบไฟล์อัตโนมัติ ให้ใช้ PROMPT_STEP_READ เพื่อวิเคราะห์และอ้างอิง
         currentSystemPrompt = PROMPT_STEP_READ;
       }
@@ -770,7 +1205,7 @@ export const ChatInterface = () => {
         role: 'system',
         parts: [{ 
           text: (isSpecialTool || currentSystemPrompt === PROMPT_STEP_READ)
-            ? currentSystemPrompt + "\n\n(โปรดเขียนเนื้อหาให้ละเอียดและครอบคลุมทุกมิติ ห้ามสรุปจบเร็วเกินไป และห้ามทวนคำสั่งเดิม)"
+            ? currentSystemPrompt + "\n\n(โปรดเขียนเนื้อหาให้ละเอียดและครอบคลุมทุกมิติ ห้ามสรุปจบเร็วเกินไป ห้ามทวนคำสั่งเดิม และต้องเขียนให้จบประโยคห้ามค้างคา)"
             : currentSystemPrompt
         }]
       };
@@ -779,7 +1214,7 @@ export const ChatInterface = () => {
         temperature: isSpecialTool ? 0.8 : 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: isSpecialTool ? 4096 : 4096,
+        maxOutputTokens: (isSpecialTool || totalAttachedFileCount >= 2) ? 16384 : 4096,
       };
 
       // --- ส่วนการเรียก API (Unified Flow) ---
@@ -792,7 +1227,7 @@ export const ChatInterface = () => {
       let hasAutoAttached = false;
       
       // 🔍 ขั้นตอนที่ 1: ค้นหาและรวบรวมไฟล์จาก Minio (สำหรับทุกโหมด)
-      setLoadingStatus('🔍 กำลังรวบรวมข้อมูลเอกสาร...');
+      setLoadingStatus('สสส กำลังรวบรวมข้อมูลจากเอกสารอ้างอิง...');
       
       // 1. ตักไฟล์ที่แนบมาด้วยตนเอง (สูงสุด)
       if (files && files.length > 0) {
@@ -827,6 +1262,12 @@ export const ChatInterface = () => {
         hasAutoAttached = true;
       }
 
+      const referenceProducers = allFileInfos.map((info) => {
+        const author = info.apa?.projectInfo?.responsibleAuthor || info.apa?.projectInfo?.authorNames || 'ไม่ระบุผู้แต่ง';
+        const organization = info.apa?.projectInfo?.organization || '';
+        return organization ? `${author}, ${organization}` : author;
+      });
+
       // 📋 สร้าง File Context จากไฟล์ที่รวบรวมได้ (ใช้ชุดตัวเลขเดียวเพื่อป้องกันความสับสน)
       fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
       fileContext += '📚 **รายการเอกสารอ้างอิงสำหรับคำตอบนี้ (Source Context)**:\n';
@@ -839,10 +1280,15 @@ export const ChatInterface = () => {
         const organization = info.apa?.projectInfo?.organization || '';
         const authorInfo = organization ? `${author}, ${organization}` : author;
         
-        fileContext += `${fileIndex}. [${info.name}]\n`;
-        fileContext += `   - ข้อมูล (Title): ${title}\n`;
-        fileContext += `   - ลิงก์จริง (URL): ${info.url}\n`;
-        fileContext += `   - ผู้แต่งและหน่วยงาน (Author/Org): ${authorInfo}\n`;
+        fileContext += `${fileIndex}. ข้อมูล (Title): ${title}\n`;
+        fileContext += `   - ชื่อไฟล์ (Key): ${info.name}\n`;
+        fileContext += `   - ลิงก์ดาวน์โหลด (URL Link): ${info.url}\n`;
+        fileContext += `   - ผู้แต่งและหน่วยงาน: ${authorInfo}\n`;
+
+        const researchers = Array.isArray(info.apa?.researchers) ? info.apa.researchers : [];
+        if (researchers.length > 0) {
+          fileContext += `   - ผู้จัดทำ (Researchers): ${researchers.join(', ')}\n`;
+        }
         
         if (info.apa?.projectInfo) {
           fileContext += `   - ข้อมูลดิบ (Metadata): ${JSON.stringify(info.apa.projectInfo)}\n`;
@@ -856,12 +1302,23 @@ export const ChatInterface = () => {
       fileContext += '1. ให้ใช้ข้อมูล "เฉพาะ" จากไฟล์ที่ระบุข้างต้นเท่านั้น\n';
       fileContext += '2. อ้างอิงด้วยหมายเลขลำดับในเนื้อหา เช่น [1], [2]\n';
       fileContext += '3. หากไฟล์ใดไม่อยู่ในรายการด้านบน "ห้าม" นำมาเขียนอ้างอิงหรือสร้างชื่อไฟล์ขึ้นมาเองเด็ดขาด\n';
+      fileContext += '4. ในส่วน "เอกสารอ้างอิง" ท้ายคำตอบ ต้องใส่ลิงก์ URL จริงในรูปแบบ [ชื่อเรื่อง](URL) เสมอ (ห้ามมีช่องว่างระว่าง ] และ ( )\n';
+      fileContext += '5. ตอนสรุป "เอกสารอ้างอิง" ท้ายคำตอบ ต้องระบุ "ผู้จัดทำ" ทุกบรรทัดเสมอ\n';
+      fileContext += '6. รูปแบบรายการอ้างอิงต้องตรงตามนี้เป๊ะ: [ลำดับ] [ชื่อเรื่อง](URL) — ผู้จัดทำ: ชื่อผู้แต่ง/หน่วยงาน\n';
+      fileContext += '   ตัวอย่าง: [1] [รายงานสถานการณ์สุขภาพ 2567](http://...) — ผู้จัดทำ: สำนักงานสาธารณสุขจังหวัด...\n';
+      fileContext += '7. ห้ามใส่เครื่องหมายตกแต่งอื่นๆ ในลิงก์ URL นอกจากสิ่งที่ระบบให้มา\n';
+      fileContext += '8. ถ้ามีไฟล์แนบตั้งแต่ 3 ไฟล์ขึ้นไป ให้ตอบแบบเชิงวิเคราะห์ยาวประมาณ 2 หน้า A4\n';
+      fileContext += '9. ในคำตอบให้ใช้ "สรุปในรูปแบบตาราง" เสมอ โดยระบุข้อมูลดิบจากไฟล์นั้นๆ สำหรับหัวข้อ: ตารางสรุปตัวเลขสำคัญ\n';
+      fileContext += '   - รูปแบบตารางเบื้องต้น: ```json:table { "title": "ชื่อตาราง", "headers": ["หัวข้อ", "รายละเอียด"], "rows": [ ["ก", "ข"] ] } ```\n';
+      fileContext += '10. ในคำตอบหลักให้ครอบคลุมหัวข้อย่อยอย่างน้อย: ภาพรวมเชิงตัวเลข, ตารางสรุปตัวเลขสำคัญ, วิเคราะห์ความหมายของตัวเลข (รวมข้อวิเคราะห์จากการวิจัยไทยถ้ามี), ข้อเสนอเชิงปฏิบัติ\n';
+      fileContext += '11. ห้ามเดาตัวเลข ถ้าเอกสารไม่ระบุตัวเลขให้เขียนว่า "ไม่พบตัวเลขในเอกสารที่แนบ"\n';
+      fileContext += '12. หากมีข้อมูลจาก ADMIN_API_RESULTS ให้ผสานข้อมูลสถิติจริง (Accident/Weather) เข้ากับเนื้อหาจากงานวิจัย (ThaiJO) เพื่อให้คำตอบสมบูรณ์ที่สุด\n';
       fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
 
-      setLoadingStatus('กำลังหาข้อมูลและประมวลผล...');
+      setLoadingStatus('สสส กำลังหาข้อมูลและประมวลผล...');
 
       // ปรับปรุงคำสั่งเมื่อมีการทำงานร่วมกับไฟล์หรือเครื่องมือพิเศษ
-      if (isSpecialTool || hasAutoAttached) {
+      if (isSpecialTool || allFileInfos.length > 0) {
         const lastMsg = currentContents[currentContents.length - 1];
         
         // แนบ fileContext เข้าไปใน User Turn ล่าสุด
@@ -878,8 +1335,55 @@ export const ChatInterface = () => {
           lastMsg.parts.push({ text: instructions });
         }
       }
+
+      if (!isSpecialTool && allFileInfos.length === 0 && usedAdminEndpoints.length === 0) {
+        const lastMsg = currentContents[currentContents.length - 1];
+        const strictNoSourceInstruction = '\n\nข้อกำหนดบังคับ: รอบนี้ไม่มีไฟล์อ้างอิงและไม่มีข้อมูลจาก API เพิ่มเติม ห้ามสร้างหัวข้อเอกสารอ้างอิง ห้ามใส่ [1] [2] หรือ URL อ้างอิงใดๆ';
+        const textPart = lastMsg?.parts?.find((part: any) => part.text !== undefined);
+        if (textPart) {
+          textPart.text += strictNoSourceInstruction;
+        } else {
+          lastMsg.parts.push({ text: strictNoSourceInstruction });
+        }
+      }
+
+      if (usedAdminEndpoints.includes('/api/admin/accident')) {
+        const lastMsg = currentContents[currentContents.length - 1];
+        const mapInstruction = `
+
+ข้อกำหนดเพิ่มเติมเมื่อมีข้อมูลอุบัติเหตุ:
+- สรุปให้มีรายละเอียดที่ตรวจสอบได้: วันที่, เวลา, จุดเกิดเหตุ/สายทาง, LATITUDE, LONGITUDE, และประเภทรถ
+- ถ้าผลลัพธ์มีพิกัดอย่างน้อย 1 จุด ให้แนบ JSON แผนที่ท้ายคำตอบในรูปแบบ code block ด้านล่างเท่านั้น
+
+\`\`\`json:map-ai
+{
+  "type": "map",
+  "title": "จุดเกิดเหตุสำคัญ",
+  "points": [
+    {
+      "lat": 15.2447,
+      "lon": 104.8472,
+      "location": "จุดเกิดเหตุ",
+      "road": "ชื่อสายทาง",
+      "area": "บริเวณที่เกิดเหตุ",
+      "date": "วันที่เกิดเหตุ",
+      "time": "เวลา",
+      "vehicleType": "ประเภทรถ"
+    }
+  ]
+}
+\`\`\`
+
+- ห้ามใส่ข้อมูลสมมติ ถ้าไม่พบพิกัดหรือข้อมูลใดให้เว้นหรือระบุว่าไม่พบตามจริง`; 
+        const textPart = lastMsg?.parts?.find((part: any) => part.text !== undefined);
+        if (textPart) {
+          textPart.text += mapInstruction;
+        } else {
+          lastMsg.parts.push({ text: mapInstruction });
+        }
+      }
       
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${API_KEY}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -895,8 +1399,60 @@ export const ChatInterface = () => {
         throw new Error(`API failed: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
       }
 
-      const data = await response.json();
-      accumulatedResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('ไม่สามารถอ่าน stream response ได้');
+      }
+
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      const appendFromSseEvent = (eventBlock: string) => {
+        const lines = eventBlock
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+
+          try {
+            const json = JSON.parse(payload);
+            const parts = json?.candidates?.[0]?.content?.parts;
+            const chunkText = Array.isArray(parts)
+              ? parts.map((p: any) => p?.text || '').join('')
+              : '';
+
+            if (chunkText) {
+              accumulatedResponse += chunkText;
+              if (isSpecialTool) {
+                setPlanContent(accumulatedResponse);
+              }
+            }
+          } catch {
+            // ignore malformed chunk
+          }
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() || '';
+
+        for (const eventBlock of events) {
+          appendFromSseEvent(eventBlock);
+        }
+      }
+
+      if (buffer.trim()) {
+        appendFromSseEvent(buffer);
+      }
       
       if (isSpecialTool) {
         setPlanContent(accumulatedResponse);
@@ -930,13 +1486,14 @@ export const ChatInterface = () => {
           });
         }
       } else {
-        setLoadingStatus('กำลังจัดรูปแบบข้อมูลและสร้างสื่อเสริม...');
+        setLoadingStatus('สสส กำลังจัดรูปแบบข้อมูลและสร้างสื่อเสริม...');
         // ประมวลผลสำหรับแชทปกติ (Charts, Tables, CodeBlocks)
         const charts: any[] = [];
         const tables: any[] = [];
+        const maps: any[] = [];
         const codeBlocks: Array<{ code: string; language: string }> = [];
         
-        let processedContent = accumulatedResponse.replace(/```json:chart(?:-ai)?\s*\n?([\s\S]*?)```/g, (match, p1) => {
+        let processedContent = accumulatedResponse.replace(/```json:chart(?:-ai)?\s*\n?([\s\S]*?)```/gi, (match, p1) => {
           try {
             const cleanJson = p1
               .replace(/\/\/.*$/gm, '') // ลบ comment //
@@ -952,7 +1509,7 @@ export const ChatInterface = () => {
           }
         });
 
-        processedContent = processedContent.replace(/```json:table(?:-ai)?\s*\n?([\s\S]*?)```/g, (match, p1) => {
+        processedContent = processedContent.replace(/```json:table(?:-ai)?\s*\n?([\s\S]*?)```/gi, (match, p1) => {
           try {
             // ทำความสะอาด JSON เบื้องต้น (ลบ trailing commas และบรรทัดคอมเมนต์ที่ AI อาจแถมมา)
             const cleanJson = p1
@@ -969,6 +1526,119 @@ export const ChatInterface = () => {
           }
         });
 
+        processedContent = processedContent.replace(/```json:map(?:-ai)?\s*\n?([\s\S]*?)```/gi, (match, p1) => {
+          try {
+            const cleanJson = p1
+              .replace(/\/\/.*$/gm, '')
+              .replace(/\/\*[\s\S]*?\*\//g, '')
+              .replace(/,(\s*[\]}])/g, '$1')
+              .trim();
+            const mapData = JSON.parse(cleanJson);
+            maps.push(mapData);
+            return `<MapAI index="${maps.length - 1}" />`;
+          } catch (e) {
+            console.error('Map JSON Parse Error:', e);
+            return match;
+          }
+        });
+
+        // รองรับกรณี AI ส่งเป็น ```json ปกติ แต่มีโครงสร้าง table/chart
+        processedContent = processedContent.replace(/```json\s*\n?([\s\S]*?)```/gi, (match, p1) => {
+          try {
+            const cleanJson = p1
+              .replace(/\/\/.*$/gm, '')
+              .replace(/\/\*[\s\S]*?\*\//g, '')
+              .replace(/,(\s*[\]}])/g, '$1')
+              .trim();
+
+            const parsed = JSON.parse(cleanJson);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              return match;
+            }
+
+            const nestedTable = (parsed as any)?.table && typeof (parsed as any).table === 'object' && !Array.isArray((parsed as any).table)
+              ? (parsed as any).table
+              : null;
+            const nestedChart = (parsed as any)?.chart && typeof (parsed as any).chart === 'object' && !Array.isArray((parsed as any).chart)
+              ? (parsed as any).chart
+              : null;
+            const nestedMap = (parsed as any)?.map && typeof (parsed as any).map === 'object' && !Array.isArray((parsed as any).map)
+              ? (parsed as any).map
+              : null;
+
+            const rawType = String((parsed as any).type || '').toLowerCase();
+            const nestedRawType = String((nestedChart as any)?.type || '').toLowerCase();
+            const isChartByType = ['bar', 'line', 'pie', 'doughnut', 'chart'].includes(rawType);
+            const isNestedChartByType = ['bar', 'line', 'pie', 'doughnut', 'chart'].includes(nestedRawType);
+            const hasChartShape =
+              (Array.isArray((parsed as any)?.data?.labels) && Array.isArray((parsed as any)?.data?.datasets)) ||
+              (Array.isArray((parsed as any)?.labels) && Array.isArray((parsed as any)?.datasets)) ||
+              (Array.isArray((nestedChart as any)?.data?.labels) && Array.isArray((nestedChart as any)?.data?.datasets)) ||
+              (Array.isArray((nestedChart as any)?.labels) && Array.isArray((nestedChart as any)?.datasets));
+
+            const isTableByType = rawType === 'table';
+            const hasTableShape =
+              Array.isArray((parsed as any)?.rows) ||
+              Array.isArray((parsed as any)?.data) ||
+              Array.isArray((parsed as any)?.items) ||
+              Array.isArray((nestedTable as any)?.rows) ||
+              Array.isArray((nestedTable as any)?.data) ||
+              Array.isArray((nestedTable as any)?.items);
+
+            const isMapByType = rawType === 'map';
+            const hasMapShape =
+              Array.isArray((parsed as any)?.points) ||
+              Array.isArray((nestedMap as any)?.points) ||
+              (Array.isArray((parsed as any)?.rows) && (parsed as any).rows.some((row: any) => row && typeof row === 'object' && (
+                row.lat !== undefined || row.latitude !== undefined
+              ) && (
+                row.lon !== undefined || row.lng !== undefined || row.longitude !== undefined
+              )));
+
+            const isMapPointList = Array.isArray((parsed as any)?.points)
+              ? (parsed as any).points.some((row: any) => row && typeof row === 'object' && (
+                  row.lat !== undefined || row.latitude !== undefined
+                ) && (
+                  row.lon !== undefined || row.lng !== undefined || row.longitude !== undefined
+                ))
+              : false;
+
+            if (nestedMap && (Array.isArray((nestedMap as any)?.points) || isMapByType || hasMapShape)) {
+              maps.push(nestedMap);
+              return `<MapAI index="${maps.length - 1}" />`;
+            }
+
+            if (isMapByType || hasMapShape || isMapPointList) {
+              maps.push(parsed);
+              return `<MapAI index="${maps.length - 1}" />`;
+            }
+
+            if (nestedTable && (Array.isArray((nestedTable as any)?.rows) || Array.isArray((nestedTable as any)?.data) || Array.isArray((nestedTable as any)?.items))) {
+              tables.push(nestedTable);
+              return `<TableAI index="${tables.length - 1}" />`;
+            }
+
+            if (nestedChart && (isNestedChartByType || hasChartShape)) {
+              charts.push(nestedChart);
+              return `<ChartAI index="${charts.length - 1}" />`;
+            }
+
+            if (isChartByType || hasChartShape) {
+              charts.push(parsed);
+              return `<ChartAI index="${charts.length - 1}" />`;
+            }
+
+            if (isTableByType || hasTableShape) {
+              tables.push(parsed);
+              return `<TableAI index="${tables.length - 1}" />`;
+            }
+
+            return match;
+          } catch (e) {
+            return match;
+          }
+        });
+
         processedContent = processedContent.replace(/```(\w+)?\s*\n?([\s\S]*?)```/g, (match, langRaw, code) => {
           const language = (langRaw || '').toLowerCase();
           if (language === 'markdown' || language === 'md') return code;
@@ -978,10 +1648,20 @@ export const ChatInterface = () => {
 
         const { cleaned: finalContent, followUps: fups } = extractFollowUpsAndClean(processedContent.trim());
         let finalSanitized = sanitizeTail(finalContent);
+        finalSanitized = simplifyReferenceLinks(finalSanitized);
+        finalSanitized = enforceReferenceProducer(finalSanitized, referenceProducers);
+
+        if (allFileInfos.length === 0 && usedAdminEndpoints.length === 0) {
+          finalSanitized = removeDocumentReferenceSection(finalSanitized);
+          finalSanitized = finalSanitized.replace(/\[(\d+)\]/g, '');
+        }
+
+        const sourceSummary = buildSourceSummary(allFileInfos, usedAdminEndpoints);
+        finalSanitized = `${finalSanitized}\n\n${sourceSummary}`.trim();
 
         // กรณีที่การ Clean ทำให้ข้อความว่างเปล่า (เช่น มีแต่คำแนะนำคำถามต่อ)
         // ให้ใช้ข้อความดั้งเดิมที่ Trim แล้ว หรือข้อความเริ่มต้นหากว่างจริงๆ
-        if (!finalSanitized && !charts.length && !tables.length && !codeBlocks.length) {
+        if (!finalSanitized && !charts.length && !tables.length && !maps.length && !codeBlocks.length) {
           if (fups.length > 0) {
             finalSanitized = "นี่คือประเด็นที่น่าสนใจที่คุณสามารถถามต่อได้ครับ:";
           } else {
@@ -994,6 +1674,7 @@ export const ChatInterface = () => {
           content: finalSanitized,
           charts: charts.length > 0 ? charts : undefined,
           tables: tables.length > 0 ? tables : undefined,
+          maps: maps.length > 0 ? maps : undefined,
           codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
           isNewMessage: true
         };

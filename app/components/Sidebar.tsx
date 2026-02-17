@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     IoAddCircle,
     IoChatbubblesOutline,
@@ -31,6 +32,7 @@ interface UserData {
 
 // 3. รับ props มาจากไฟล์แม่
 export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarProps) => {
+  const router = useRouter();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [user, setUser] = useState<UserData | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -118,7 +120,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                     <nav className="flex flex-col space-y-2 px-2">
                         {/* New Chat Button */}
                         <button onClick={
-                            () => window.location.href = '/'
+                            () => router.push('/')
                         } className={`flex items-center p-3 rounded-md bg-[#eb6f45f1] hover:bg-[#f56e41] text-white transition-all duration-200 hover:scale-105 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoAddCircle size={28} className="shrink-0" />
                             <span className={`font-bold whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>New Chat</span>
@@ -126,7 +128,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
 
                         {/* Other Menu Items */}
                         <button onClick={
-                            () => window.location.href = '/history_chat'
+                            () => router.push('/history_chat')
                         } className={`flex items-center p-3 w-full rounded-md hover:bg-gray-200 cursor-pointer transition-colors duration-200 ${isExpanded ? 'space-x-3' : 'justify-center'}`}>
                             <IoChatbubblesOutline size={24} className="text-gray-600 shrink-0" />
                             <span className={`font-bold text-gray-600 whitespace-nowrap ${isExpanded ? 'block' : 'hidden'}`}>All Chats</span>
@@ -185,7 +187,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                                     sessions.slice(0, 10).map((session) => (
                                         <button
                                             key={session.id}
-                                            onClick={() => window.location.href = `/?session=${session.id}`}
+                                            onClick={() => router.push(`/?session=${session.id}`)}
                                             className="w-full text-left p-2 rounded-md hover:bg-orange-50 transition-colors group"
                                         >
                                             <div className="flex items-start space-x-2">

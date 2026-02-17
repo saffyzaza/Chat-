@@ -141,6 +141,11 @@ export const useChatHistory = () => {
     loadSessions();
   }, [loadSessions]);
 
+  // รีเซ็ต session ปัจจุบัน
+  const resetCurrentSession = useCallback(() => {
+    setCurrentSessionId(null);
+  }, []);
+
   return {
     sessions,
     currentSessionId,
@@ -155,6 +160,7 @@ export const useChatHistory = () => {
     search,
     filterByDate,
     resetFilter,
-    loadSessions
+    loadSessions,
+    resetCurrentSession
   };
 };

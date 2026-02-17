@@ -9,6 +9,7 @@ export interface ChatMessage {
   images?: string[];
   charts?: any[];
   tables?: any[];
+  maps?: any[];
   codeBlocks?: Array<{ code: string; language: string }>;
   planContent?: string;
   timestamp: string;
@@ -423,6 +424,7 @@ export const addMessageToSession = async (
           images: message.images,
           charts: message.charts,
           tables: message.tables,
+          maps: message.maps,
           codeBlocks: message.codeBlocks,
           planContent: message.planContent
         })

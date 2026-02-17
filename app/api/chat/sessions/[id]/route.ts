@@ -4,13 +4,26 @@ import { Pool } from 'pg';
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'chatdb',
+  database: process.env.DB_NAME || 'chat-aio',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'your_password',
+  password: process.env.DB_PASSWORD || '1234',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
+
+let ensureMapsColumnPromise: Promise<void> | null = null;
+const ensureMapsColumn = async () => {
+  if (!ensureMapsColumnPromise) {
+    ensureMapsColumnPromise = pool
+      .query('ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS maps JSONB')
+      .then(() => undefined)
+      .catch((error) => {
+        console.warn('ensure maps column failed:', error?.message || error);
+      });
+  }
+  await ensureMapsColumnPromise;
+};
 
 // GET: ดึงข้อมูล session พร้อม messages
 export async function GET(
@@ -18,6 +31,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureMapsColumn();
     const { id: sessionId } = await params;
 
     // ดึงข้อมูล session
@@ -39,7 +53,7 @@ export async function GET(
 
     // ดึง messages
     const messagesQuery = `
-      SELECT id, role, content, images, charts, tables, code_blocks, plan_content, created_at
+      SELECT id, role, content, images, charts, tables, maps, code_blocks, plan_content, created_at
       FROM chat_messages 
       WHERE session_id = $1
       ORDER BY created_at ASC
@@ -61,6 +75,7 @@ export async function GET(
           images: msg.images || [],
           charts: msg.charts || [],
           tables: msg.tables || [],
+          maps: msg.maps || [],
           codeBlocks: msg.code_blocks || [],
           planContent: msg.plan_content,
           timestamp: msg.created_at

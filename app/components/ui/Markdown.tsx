@@ -5,16 +5,18 @@ import MarkdownToJsx from "markdown-to-jsx";
 import { ChartRenderer } from "../chat/chatMessage/ChartRenderer";
 import { TableRenderer } from "../chat/chatMessage/TableRenderer";
 import { CodeBlock } from "../chat/chatMessage/CodeBlock";
+import { MapRenderer } from "../chat/chatMessage/MapRenderer";
 
 interface MarkdownProps {
   children: string;
   className?: string;
   charts?: any[];
   tables?: any[];
+  maps?: any[];
   codeBlocks?: any[];
 }
 
-const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }: MarkdownProps) => {
+const NonMemoizedMarkdown = ({ children, className, charts, tables, maps, codeBlocks }: MarkdownProps) => {
   // ลบแท็ก wrapper ที่ไม่รองรับ เช่น <markdown> หรือ <md> หรือ <thought> เพื่อหลีกเลี่ยง React error
   const sanitized = typeof children === 'string'
     ? children
@@ -22,10 +24,17 @@ const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }
         .replace(/<\/?md[^>]*>/gi, '')
         .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
         .replace(/<\/?thought[^>]*>/gi, '')
-        .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
-          const cleanUrl = url.replace(/\s+/g, '');
-          return `[${text}](${cleanUrl})`;
+        // แก้ไขช่องว่างระหว่าง ][ และ ]( ที่พบบ่อยในผลลัพธ์จาก AI
+        .replace(/\]\s*\[/g, '][')
+        // แก้ไขกรณี AI ขึ้นบรรทัดใหม่ระหว่าง [Title] และ (URL)
+        .replace(/\[([^\]]+)\]\n+\s*\(/g, '[$1](')
+        // แก้ไขช่องว่างหรือการขึ้นบรรทัดใหม่ภายในวงเล็บของลิงก์ URL (ที่พบบ่อยเมื่อ AI ตัดคำยาวๆ)
+        .replace(/\[([^\]]+)\]\s*\((https?:\/\/[^)]+)\)/g, (match, title, url) => {
+          const cleanUrl = url.replace(/\s+/g, ''); // ลบช่องว่างและขึ้นบรรทัดใหม่ใน URL
+          return `[${title.trim()}](${cleanUrl})`;
         })
+        // แก้ไข [text] (url) -> [text](url) แบบทั่วไป
+        .replace(/\[([^\]]+)\]\s*\((https?:\/\/[^\s\n)]+)\)/g, '[$1]($2)')
     : children;
 
   return (
@@ -45,6 +54,13 @@ const NonMemoizedMarkdown = ({ children, className, charts, tables, codeBlocks }
                 const idx = parseInt(index);
                 const data = tables?.[idx];
                 return data ? <TableRenderer tableData={data} /> : null;
+              }
+            },
+            MapAI: {
+              component: ({ index }: { index: string }) => {
+                const idx = parseInt(index);
+                const data = maps?.[idx];
+                return data ? <MapRenderer mapData={data} /> : null;
               }
             },
             CodeBlockAI: {

@@ -129,7 +129,7 @@ export default function CsvImportPage() {
     try {
       setChatLoading(true);
       const token = getAuthToken();
-      const res = await fetch('/api/admin/ai-chat', {
+      const res = await fetch('/api/admin/accident', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
