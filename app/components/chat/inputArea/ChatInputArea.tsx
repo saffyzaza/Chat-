@@ -636,7 +636,7 @@ export const ChatInputArea = ({ onSend, isLoading, onSendWithFiles, onStop }: Ch
                   onClick={() => { 
                     setOpenPopup(null); 
                     setSelectedTool('ฐานข้อมูล');
-                    setShowDatabaseModal(false);
+                    setShowDatabaseModal(true);
                   }}
                 />
               </div>
