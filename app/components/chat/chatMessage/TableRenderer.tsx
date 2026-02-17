@@ -17,6 +17,17 @@ interface TableRendererProps {
 
 export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 'md', className }) => {
   if (!tableData) return null;
+
+  const normalizeKey = (value: any): string =>
+    String(value ?? '')
+      .toLowerCase()
+      .replace(/[\s_\-()\[\]{}:]+/g, '');
+
+  const isEmptyCell = (value: any): boolean => {
+    if (value === null || value === undefined) return true;
+    const text = String(value).trim().toLowerCase();
+    return text === '' || text === '-' || text === 'null' || text === 'undefined';
+  };
   
   const sizeClass = size === 'sm' ? 'ai-table-sm' : size === 'lg' ? 'ai-table-lg' : '';
   
@@ -36,17 +47,62 @@ export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 
   let processedRows = Array.isArray(rawRows) ? [...rawRows] : [];
 
   if (processedRows.length > 0 && typeof processedRows[0] === 'object' && !Array.isArray(processedRows[0])) {
+    const firstRowObj = processedRows[0] as Record<string, any>;
+    const objectKeys = Object.keys(firstRowObj);
+
     // ดึง Keys ทั้งหมดจาก object แรกมาเป็น Header หากยังไม่มี Header
     if (processedHeaders.length === 0) {
-      processedHeaders = Object.keys(processedRows[0]);
+      processedHeaders = objectKeys;
     }
-    
-    // แปลงแต่ละ object เป็น array ตามลำดับของ headers
-    processedRows = processedRows.map(rowObj => {
+
+    const normalizedObjectKeyMap = new Map<string, string>();
+    objectKeys.forEach((key) => normalizedObjectKeyMap.set(normalizeKey(key), key));
+
+    const mappedRows = processedRows.map((rowObj: any) => {
       if (typeof rowObj === 'object' && !Array.isArray(rowObj)) {
-        return processedHeaders.map(h => rowObj[h] ?? rowObj[String(h)] ?? '');
+        return processedHeaders.map((header: any) => {
+          const rawHeader = typeof header === 'object' && header !== null
+            ? (header.header || header.label || header.name || header.title || '')
+            : String(header ?? '');
+
+          const direct = rowObj[rawHeader] ?? rowObj[String(rawHeader)];
+          if (direct !== undefined) return direct;
+
+          const mappedKey = normalizedObjectKeyMap.get(normalizeKey(rawHeader));
+          if (mappedKey) return rowObj[mappedKey];
+
+          return '';
+        });
       }
       return rowObj;
+    });
+
+    const firstMapped = Array.isArray(mappedRows[0]) ? mappedRows[0] : [];
+    const hasAnyMappedValue = firstMapped.some((cell: any) => !isEmptyCell(cell));
+
+    // fallback: ถ้า header ที่ AI ส่งมาไม่ตรง key จริงจนข้อมูลว่าง ให้ใช้ key จาก object โดยตรง
+    if (!hasAnyMappedValue) {
+      processedHeaders = objectKeys;
+      processedRows = processedRows.map((rowObj: any) => {
+        if (typeof rowObj === 'object' && !Array.isArray(rowObj)) {
+          return processedHeaders.map((key: any) => rowObj[String(key)] ?? '');
+        }
+        return rowObj;
+      });
+    } else {
+      processedRows = mappedRows;
+    }
+  }
+
+  if (Array.isArray(processedRows)) {
+    processedRows = processedRows.filter((row: any) => {
+      if (Array.isArray(row)) {
+        return row.some((cell) => !isEmptyCell(cell));
+      }
+      if (typeof row === 'object' && row !== null) {
+        return Object.values(row).some((cell) => !isEmptyCell(cell));
+      }
+      return !isEmptyCell(row);
     });
   }
 
@@ -69,14 +125,14 @@ export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 
       )}
       <div className="overflow-auto max-h-[60vh]">
         <table
-          className={`ai-table ${sizeClass} w-full table-auto min-w-[640px] divide-y divide-gray-200`}
+          className={`ai-table ${sizeClass} w-full table-auto min-w-full text-sm divide-y divide-gray-200`}
         >
           <thead className="bg-[#fcfaff]">
             <tr>
               {Array.isArray(headers) && headers.map((header: any, index: number) => (
                 <th
                   key={index}
-                  className="px-6 py-4 text-left font-bold text-gray-700 border-b-2 border-purple-100 uppercase tracking-wider bg-purple-50/50"
+                  className="px-4 py-3 text-left font-bold text-gray-700 border-b-2 border-purple-100 uppercase tracking-wider bg-purple-50/50"
                 >
                   {typeof header === 'object' && header !== null 
                     ? (header.header || header.label || header.name || header.title || JSON.stringify(header)) 
@@ -91,12 +147,12 @@ export const TableRenderer: React.FC<TableRendererProps> = ({ tableData, size = 
                 {Array.isArray(row) ? row.map((cell: any, cellIndex: number) => (
                   <td
                     key={cellIndex}
-                    className="px-6 py-4 whitespace-normal break-words text-gray-600 leading-normal border-r border-gray-50 last:border-r-0"
+                    className="px-4 py-3 whitespace-normal break-words text-gray-600 leading-normal border-r border-gray-50 last:border-r-0"
                   >
                     {String(cell ?? '')}
                   </td>
                 )) : (
-                  <td colSpan={Array.isArray(headers) ? headers.length : 1} className="px-6 py-4 text-gray-600 italic">
+                  <td colSpan={Array.isArray(headers) ? headers.length : 1} className="px-4 py-3 text-gray-600 italic">
                     {typeof row === 'object' ? JSON.stringify(row) : String(row)}
                   </td>
                 )}

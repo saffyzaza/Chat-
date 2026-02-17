@@ -80,10 +80,10 @@ const AdminMenuPage = () => {
       hoverColor: 'hover:border-blue-400'
     },
     {
-      title: 'พยากรณ์อากาศรายตำบล',
-      description: 'ระบบติดตามสภาพอากาศและร้อยละโอกาสเกิดฝนรายพื้นที่ 1-7 วันข้างหน้า',
-      icon: <HiOutlineCloud className="w-8 h-8" />,
-      href: '/admin/weather',
+      title: 'ช่องแชทโรคเบาหวาน',
+      description: 'ระบบให้คำปรึกษาและติดตามผู้ป่วยโรคเบาหวานด้วย AI',
+      icon: <HiOutlineChatAlt2 className="w-8 h-8" />,
+      href: '/admin/diabetes-chat',
       color: 'bg-orange-500',
       borderColor: 'border-orange-100',
       hoverColor: 'hover:border-orange-400'

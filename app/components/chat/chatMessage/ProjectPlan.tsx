@@ -21,11 +21,14 @@ import {
   TableLayoutType,
   PageNumber,
   ExternalHyperlink,
+  ImageRun,
 } from 'docx';
 import { saveAs } from 'file-saver';
-import { FiDownload, FiX } from 'react-icons/fi';
+import { FiDownload, FiX, FiImage, FiExternalLink, FiMapPin } from 'react-icons/fi';
+import html2canvas from 'html2canvas';
 import { ChartRenderer } from './ChartRenderer';
 import { TableRenderer } from './TableRenderer';
+import { MapRenderer } from './MapRenderer';
 
 interface ProjectPlanProps {
   content?: string;
@@ -51,6 +54,104 @@ const DOC_CONFIG = {
 export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlanProps) => {
   if (!content && !isLoading) return null;
 
+  const formatReferenceBlock = (text: string): string => {
+    if (!text) return text;
+    // ปรับปรุงการจัดรูปแบบส่วนอ้างอิงให้เป็นระเบียบ เป็น Flex-like list
+    return text.replace(/(เอกสารอ้างอิง(?:เชิงวิชาการ)?\s*:?)([\s\S]*)/i, (_match, header, tail) => {
+      const normalizedTail = String(tail || '')
+        .replace(/\s*(\[\d+\])/g, '\n\n$1') // เว้นบรรทัดระหว่างรายการอ้างอิง
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      return `\n---\n\n### ${header}\n\n${normalizedTail}`;
+    });
+  };
+
+  const dataUrlToUint8Array = (dataUrl: string): Uint8Array | null => {
+    try {
+      const base64 = dataUrl.split(',')[1] || '';
+      if (!base64) return null;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index++) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    } catch {
+      return null;
+    }
+  };
+
+  const normalizeChartPayload = (input: any): { type: 'bar' | 'line' | 'pie' | 'doughnut'; data: any; title?: string } | null => {
+    if (!input || typeof input !== 'object') return null;
+
+    const rawType = String(input.type || input.chartType || '').toLowerCase();
+    const type = (['bar', 'line', 'pie', 'doughnut'].includes(rawType) ? rawType : 'bar') as 'bar' | 'line' | 'pie' | 'doughnut';
+
+    const data = input?.data && typeof input.data === 'object'
+      ? input.data
+      : {
+          labels: Array.isArray(input?.labels) ? input.labels : [],
+          datasets: Array.isArray(input?.datasets) ? input.datasets : [],
+        };
+
+    if (!Array.isArray(data?.datasets) || data.datasets.length === 0) return null;
+
+    return {
+      type,
+      data,
+      title: input?.options?.plugins?.title?.text || input?.title || undefined,
+    };
+  };
+
+  const createChartImageData = async (chartData: any): Promise<Uint8Array | null> => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const ChartLib = (window as any)?.Chart;
+      if (!ChartLib) return null;
+
+      const normalized = normalizeChartPayload(chartData);
+      if (!normalized) return null;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280;
+      canvas.height = 720;
+
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+
+      const chart = new ChartLib(context, {
+        type: normalized.type,
+        data: JSON.parse(JSON.stringify(normalized.data)),
+        options: {
+          responsive: false,
+          animation: false,
+          plugins: {
+            legend: { display: true, position: 'top' },
+            title: {
+              display: !!normalized.title,
+              text: normalized.title,
+            },
+          },
+          scales: normalized.type === 'pie' || normalized.type === 'doughnut'
+            ? {}
+            : {
+                x: { ticks: { maxRotation: 0, autoSkip: true } },
+                y: { beginAtZero: true },
+              },
+        },
+      });
+
+      chart.update();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const png = canvas.toDataURL('image/png', 1);
+      chart.destroy();
+
+      return dataUrlToUint8Array(png);
+    } catch {
+      return null;
+    }
+  };
+
   const isDeepResearch = status?.toLowerCase().includes('deep research') || 
                          status?.toLowerCase().includes('deep search') ||
                          content?.toLowerCase().includes('deep research') ||
@@ -60,7 +161,8 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
   const handleDownload = async () => {
     if (!content) return;
 
-    const lines = content.split('\n');
+    const normalizedContent = formatReferenceBlock(content);
+    const lines = normalizedContent.split('\n');
     const docChildren: any[] = [];
 
     const parseTextToWordElements = (text: string, options: { size?: number, color?: string, forceBold?: boolean } = {}): any[] => {
@@ -68,6 +170,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       
       // 1. Clean up technical artifacts and fix broken markdown links across lines
       const cleanedText = text
+        .replace(/(^|\s)(https?:\/\/[^\s<)]+)(?=$|\s)/g, '$1[$2]($2)')
         .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, t, u) => {
           return `[${t}](${u.replace(/\s+/g, '')})`;
         })
@@ -208,14 +311,23 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
           if (cells.length > 0) {
             const isHeader = rowIdx === 0;
-            const cellWidth = 100 / cells.length;
+            
+            // ปรับความกว้างคอลัมน์ให้เหมาะสม (คอลัมน์แรกมักเป็นลำดับ)
+            let cellWidths: number[] = [];
+            if (cells.length === 1) cellWidths = [100];
+            else if (cells.length === 2) cellWidths = [15, 85];
+            else if (cells.length === 3) cellWidths = [10, 45, 45];
+            else if (cells.length === 4) cellWidths = [8, 32, 25, 35];
+            else if (cells.length === 5) cellWidths = [8, 25, 25, 22, 20];
+            else if (cells.length === 6) cellWidths = [7, 20, 25, 18, 15, 15];
+            else cellWidths = cells.map(() => 100 / cells.length);
 
             rows.push(
               new TableRow({
                 children: cells.map(
-                  (cell) =>
+                  (cell, cIdx) =>
                     new TableCell({
-                      width: { size: cellWidth, type: WidthType.PERCENTAGE },
+                      width: { size: cellWidths[cIdx] || (100 / cells.length), type: WidthType.PERCENTAGE },
                       children: [
                         new Paragraph({
                           children: parseTextToWordElements(cell.trim(), {
@@ -247,7 +359,6 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           docChildren.push(
             new Table({
               width: { size: 100, type: WidthType.PERCENTAGE },
-              layout: TableLayoutType.FIXED,
               rows,
               margins: { bottom: 400 },
             })
@@ -256,30 +367,56 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
         continue;
       }
 
-      if (trimmed === '```json:chart') {
+      if (trimmed === '```json:chart' || trimmed === '```json:chart-ai') {
         let chartContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
-          chartContent += lines[i];
+          chartContent += lines[i] + '\n';
           i++;
         }
         try {
-          const chartData = JSON.parse(chartContent);
-          docChildren.push(
-            new Paragraph({
-              children: [
-                new TextRun({
-                  text: `[📊 กราฟแสดงผล: ${chartData.options?.plugins?.title?.text || chartData.type || 'ข้อมูลสถิติ'}]`,
-                  bold: true,
-                  color: '1A5F7A',
-                  font: DOC_CONFIG.font,
-                  size: 24,
-                }),
-              ],
-              alignment: AlignmentType.CENTER,
-              spacing: { before: 200, after: 200 },
-            })
-          );
+          // Remove comments safely (preserving URLs like http://)
+          const cleanJson = chartContent
+            .replace(/("([^"\\]*(\\.[^"\\]*)*)")|(\/\/.*$)|(\/\*[\s\S]*?\*\/)/gm, (m, p1) => p1 || '')
+            .replace(/,(\s*[\]}])/g, '$1')
+            .trim();
+          const chartData = JSON.parse(cleanJson);
+          const chartImageData = await createChartImageData(chartData);
+
+          if (chartImageData) {
+            docChildren.push(
+              new Paragraph({
+                children: [
+                  new ImageRun({
+                    type: 'png',
+                    data: chartImageData,
+                    transformation: {
+                      width: 620,
+                      height: 350,
+                    },
+                  }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 180, after: 180 },
+              })
+            );
+          } else {
+            docChildren.push(
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: `[📊 กราฟแสดงผล: ${chartData.options?.plugins?.title?.text || chartData.title || chartData.type || 'ข้อมูลสถิติ'}]`,
+                    bold: true,
+                    color: '1A5F7A',
+                    font: DOC_CONFIG.font,
+                    size: 24,
+                  }),
+                ],
+                alignment: AlignmentType.CENTER,
+                spacing: { before: 200, after: 200 },
+              })
+            );
+          }
         } catch (e) {
           console.error('Chart parse error in word export', e);
         }
@@ -291,13 +428,13 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
         let tableJsonContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
-          tableJsonContent += lines[i];
+          tableJsonContent += lines[i] + '\n';
           i++;
         }
         try {
+          // Remove comments safely (preserving URLs like http://)
           const cleanJson = tableJsonContent
-            .replace(/\/\/.*$/gm, '')
-            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/("([^"\\]*(\\.[^"\\]*)*)")|(\/\/.*$)|(\/\*[\s\S]*?\*\/)/gm, (m, p1) => p1 || '')
             .replace(/,(\s*[\]}])/g, '$1')
             .trim();
           const tableData = JSON.parse(cleanJson);
@@ -323,11 +460,20 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           
           // Header Row
           if (processedHeaders.length > 0) {
+            // ปรับความกว้างคอลัมน์อัตโนมัติสำหรับ JSON table
+            const count = processedHeaders.length;
+            const jsonWidths = count === 1 ? [100] :
+                               count === 2 ? [15, 85] :
+                               count === 3 ? [10, 45, 45] :
+                               count === 4 ? [8, 32, 25, 35] :
+                               count === 5 ? [8, 25, 25, 22, 20] :
+                               processedHeaders.map(() => 100 / count);
+
             docTableRows.push(new TableRow({
-              children: processedHeaders.map(h => new TableCell({
-                width: { size: 100 / processedHeaders.length, type: WidthType.PERCENTAGE },
+              children: processedHeaders.map((h, hIdx) => new TableCell({
+                width: { size: jsonWidths[hIdx], type: WidthType.PERCENTAGE },
                 children: [new Paragraph({
-                  children: parseTextToWordElements(String(h), { bold: true, size: 24 }),
+                  children: parseTextToWordElements(String(h), { forceBold: true, size: 24 }),
                   alignment: AlignmentType.CENTER,
                 })],
                 shading: { fill: 'F2F2F2' },
@@ -336,7 +482,9 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                   bottom: { style: BorderStyle.SINGLE, size: 4 },
                   left: { style: BorderStyle.SINGLE, size: 4 },
                   right: { style: BorderStyle.SINGLE, size: 4 },
-                }
+                },
+                margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                verticalAlign: VerticalAlign.CENTER,
               }))
             }));
           }
@@ -355,7 +503,9 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                     bottom: { style: BorderStyle.SINGLE, size: 4 },
                     left: { style: BorderStyle.SINGLE, size: 4 },
                     right: { style: BorderStyle.SINGLE, size: 4 },
-                  }
+                  },
+                  margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                  verticalAlign: VerticalAlign.CENTER,
                 }))
               }));
             }
@@ -370,6 +520,102 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           }
         } catch (e) {
           console.error('Table AI parse error in word export', e);
+        }
+        i++;
+        continue;
+      }
+
+      if (trimmed === '```json:map' || trimmed === '```json:map-ai') {
+        let mapJsonContent = '';
+        i++;
+        while (i < lines.length && !lines[i].trim().includes('```')) {
+          mapJsonContent += lines[i] + '\n';
+          i++;
+        }
+        try {
+          const cleanJson = mapJsonContent
+            .replace(/("([^"\\]*(\\.[^"\\]*)*)")|(\/\/.*$)|(\/\*[\s\S]*?\*\/)/gm, (m, p1) => p1 || '')
+            .replace(/,(\s*[\]}])/g, '$1')
+            .trim();
+          const mapData = JSON.parse(cleanJson);
+          const points = Array.isArray(mapData.points) ? mapData.points : [];
+
+          docChildren.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: `📍 แผนที่แสดงผล: ${mapData.title || 'ข้อมูลพิกัดภูมิศาสตร์'}`,
+                  bold: true,
+                  color: 'C00000',
+                  font: DOC_CONFIG.font,
+                  size: 28,
+                }),
+              ],
+              spacing: { before: 200, after: 100 },
+            })
+          );
+
+          if (points.length > 0) {
+            const mapWidths = [8, 32, 25, 35];
+            const mapTableRows = [
+              new TableRow({
+                children: ['จุดที่', 'สถานที่/จุดเกิดเหตุ', 'พิกัด (Lat, Lon)', 'รายละเอียด'].map((h, hIdx) => new TableCell({
+                  width: { size: mapWidths[hIdx], type: WidthType.PERCENTAGE },
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: h, bold: true, size: 24 })],
+                    alignment: AlignmentType.CENTER,
+                  })],
+                  shading: { fill: 'F2F2F2' },
+                  borders: {
+                    top: { style: BorderStyle.SINGLE, size: 4 },
+                    bottom: { style: BorderStyle.SINGLE, size: 4 },
+                    left: { style: BorderStyle.SINGLE, size: 4 },
+                    right: { style: BorderStyle.SINGLE, size: 4 },
+                  },
+                  margins: { top: 120, bottom: 120, left: 120, right: 120 },
+                  verticalAlign: VerticalAlign.CENTER,
+                }))
+              })
+            ];
+
+            points.forEach((p: any, idx: number) => {
+              const lat = p.lat || p.latitude || '-';
+              const lon = p.lon || p.lng || p.longitude || '-';
+              const location = p.location || p.point || p.area || '-';
+              const detail = [p.road, p.date, p.time, p.vehicleType].filter(Boolean).join(', ') || '-';
+
+              mapTableRows.push(new TableRow({
+                children: [
+                  String(idx + 1),
+                  location,
+                  `${lat}, ${lon}`,
+                  detail
+                ].map((c, cIdx) => new TableCell({
+                  width: { size: mapWidths[cIdx], type: WidthType.PERCENTAGE },
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: c, size: 22 })],
+                    alignment: cIdx === 0 || cIdx === 2 ? AlignmentType.CENTER : AlignmentType.LEFT,
+                  })],
+                  borders: {
+                    top: { style: BorderStyle.SINGLE, size: 2 },
+                    bottom: { style: BorderStyle.SINGLE, size: 2 },
+                    left: { style: BorderStyle.SINGLE, size: 2 },
+                    right: { style: BorderStyle.SINGLE, size: 2 },
+                  },
+                  margins: { top: 80, bottom: 80, left: 80, right: 80 },
+                  verticalAlign: VerticalAlign.CENTER,
+                }))
+              }));
+            });
+
+            docChildren.push(new Table({
+              width: { size: 100, type: WidthType.PERCENTAGE },
+              rows: mapTableRows,
+              margins: { bottom: 400 },
+            }));
+          }
+        } catch (e) {
+          console.error('Map AI parse error in word export', e);
         }
         i++;
         continue;
@@ -646,16 +892,23 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             // Pre-process markdown to fix common table rendering issues
             let processedContent = pageContent
               .trim()
-              // 1. Ensure blank line before tables (some parsers need it)
+              .replace(/(^|\s)(https?:\/\/[^\s<)]+)(?=$|\s)/g, '$1[$2]($2)')
+              // 1. Remove <thought> tags that AI might generate
+              .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
+              .replace(/<\/?thought[^>]*>/gi, '')
+              // 2. Ensure blank line before tables (some parsers need it)
               .replace(/([^\n])\n\|/g, '$1\n\n|')
-              // 2. Fix literal <br> tags anywhere - convert to spaces or actual newlines depending on context
+              // 3. Fix literal <br> tags anywhere - convert to spaces or actual newlines depending on context
               // Inside tables, <br> breaks standard markdown. Let's replace them with a space for integrity.
               .replace(/<br\s*\/?>/gi, ' ')
-              // 3. Fix broken markdown links across lines [text](url1\nurl2)
+              // 4. Fix broken markdown links across lines [text](url1\nurl2)
               .replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, url) => {
                 const cleanUrl = url.replace(/\s+/g, '');
                 return `[${text}](${cleanUrl})`;
-              });
+              })
+              .replace(/(\])\s*(?=\[\d+\])/g, '$1\n\n');
+
+            processedContent = formatReferenceBlock(processedContent);
 
             const lines = processedContent.split('\n');
             const finalLines = [];
@@ -701,64 +954,72 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             return (
             <div 
               key={index} 
-              className="w-full max-w-4xl bg-white shadow-[0_0_60px_-15px_rgba(0,0,0,0.15)] border border-gray-200 rounded-sm p-12 md:p-20 md:pb-32 mb-12 min-h-[1120px] relative transition-all hover:shadow-2xl flex flex-col"
+              className="w-full max-w-4xl bg-white shadow-[0_0_60px_-15px_rgba(0,0,0,0.15)] border border-gray-200 rounded-sm p-12 md:p-20 mb-12 min-h-[1123px] h-auto relative transition-all hover:shadow-2xl flex flex-col"
             > 
-              <div className="absolute bottom-10 left-0 right-0 text-center text-[10px] text-gray-400 font-bold select-none print:hidden uppercase tracking-[0.3em] border-t border-gray-50 pt-8 mx-20">
-                PAGINATION • {index + 1} / {array.length}
-              </div>
-
-              <article className="prose prose-blue max-w-none flex-1 pb-10 wrap-break-word">
+              <article className="prose prose-blue max-w-none pb-20 break-words">
                 <Markdown
                   options={{
                     overrides: {
                         h1: {
                           component: 'h1',
                           props: {
-                            className: 'mb-12 wrap-break-word border-b-4 border-blue-600 pb-6 text-center text-3xl font-black leading-tight text-gray-900 tracking-tight md:text-5xl',
+                            className: 'mb-12 break-words border-b-4 border-blue-600 pb-6 text-center text-3xl font-black leading-tight text-gray-900 tracking-tight md:text-5xl',
                           },
                         },
                         h2: {
                           component: 'h2',
                           props: {
-                            className: 'mb-8 mt-16 wrap-break-word border-b border-gray-100 pb-2 text-xl font-bold leading-snug text-[#1A5F7A] md:text-3xl',
+                            className: 'mb-8 mt-16 break-words border-b border-gray-100 pb-2 text-xl font-bold leading-snug text-[#1A5F7A] md:text-3xl',
                           },
                         },
                         h3: {
                           component: 'h3',
                           props: {
-                            className: 'mb-6 mt-12 wrap-break-word border-l-4 border-blue-200 pl-6 text-lg font-bold leading-snug text-blue-800 md:text-2xl',
+                            className: 'mb-6 mt-12 break-words border-l-4 border-blue-200 pl-6 text-lg font-bold leading-snug text-blue-800 md:text-2xl',
                           },
                         },
                         p: {
-                          component: 'p',
-                          props: {
-                            className: 'mb-8 wrap-break-word text-left text-base font-medium leading-[1.8] text-gray-700 md:text-xl whitespace-normal indent-10',
-                          },
+                          component: ({ children, ...props }: any) => {
+                            const childrenArray = React.Children.toArray(children);
+                            const firstChild = childrenArray[0];
+                            const isRef = typeof firstChild === 'string' && /^\[\s*\d+\s*\]/.test(firstChild.trim());
+                            const isSectionHeader = typeof firstChild === 'string' && firstChild.includes('เอกสารอ้างอิง');
+                            
+                            return (
+                              <p 
+                                {...props} 
+                                className={`mb-6 break-words text-left text-base leading-snug text-gray-700 md:text-xl whitespace-normal ${isRef || isSectionHeader ? 'indent-0 text-sm md:text-base opacity-80 border-l-2 border-gray-100 pl-4 py-2 bg-gray-50/20 rounded-r-lg' : 'indent-8 font-medium'}`}
+                              >
+                                {children}
+                              </p>
+                            );
+                          }
                         },
                         ul: {
                           component: 'ul',
                           props: {
-                            className: 'mb-8 wrap-break-word space-y-5 pl-10 text-gray-700 list-disc',
+                            className: 'mb-8 break-words space-y-4 pl-10 text-gray-700 list-disc',
                           },
                         },
                         ol: {
                           component: 'ol',
                           props: {
-                            className: 'mb-8 wrap-break-word space-y-5 pl-10 text-gray-700 list-decimal',
+                            className: 'mb-8 break-words space-y-4 pl-10 text-gray-700 list-decimal',
                           },
                         },
                         li: {
                           component: 'li',
                           props: {
-                            className: 'wrap-break-word pl-2 text-base leading-relaxed md:text-xl marker:font-bold marker:text-blue-600',
+                            className: 'break-words pl-2 text-base leading-relaxed md:text-xl marker:font-bold marker:text-blue-500',
                           },
                         },
                       code: {
                         component: ({ children, className }: any) => {
                           const isChart = className?.includes('language-json:chart');
                           const isTable = className?.includes('language-json:table');
+                          const isMap = className?.includes('language-json:map');
                           
-                          if (isChart || isTable) {
+                          if (isChart || isTable || isMap) {
                             try {
                               const content = Array.isArray(children) ? children.join('') : children;
                               const cleanJson = content
@@ -770,7 +1031,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                               if (isChart) {
                                 const chartData = JSON.parse(cleanJson);
                                 return (
-                                  <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
+                                  <div className="my-10 p-4 md:p-8 bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden hover:shadow-2xl transition-all bg-linear-to-br from-white to-blue-50/20">
                                     <ChartRenderer chartData={chartData} />
                                   </div>
                                 );
@@ -779,8 +1040,17 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                               if (isTable) {
                                 const tableData = JSON.parse(cleanJson);
                                 return (
-                                  <div className="my-14 p-8 bg-white rounded-3xl border border-gray-100 shadow-2xl overflow-hidden hover:shadow-blue-900/10 transition-shadow bg-linear-to-br from-white to-blue-50/30">
+                                  <div className="my-10 p-4 md:p-8 bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden hover:shadow-2xl transition-all bg-linear-to-br from-white to-blue-50/20">
                                     <TableRenderer tableData={tableData} />
+                                  </div>
+                                );
+                              }
+
+                              if (isMap) {
+                                const mapData = JSON.parse(cleanJson);
+                                return (
+                                  <div className="my-10 p-4 md:p-8 bg-white rounded-2xl border border-gray-100 shadow-xl overflow-hidden hover:shadow-2xl transition-all bg-linear-to-br from-white to-blue-50/20">
+                                    <MapRenderer mapData={mapData} />
                                   </div>
                                 );
                               }
@@ -793,8 +1063,8 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                       },
                       table: { 
                         component: ({ children, ...props }: any) => (
-                          <div className="my-14 w-full overflow-x-auto wrap-break-word">
-                            <table className="w-full border-collapse border-2 border-gray-900 shadow-xl rounded-lg table-auto" {...props}>
+                          <div className="my-10 w-full overflow-x-auto break-words">
+                            <table className="w-full border-collapse border border-gray-200 shadow-md rounded-lg table-auto" {...props}>
                               {children}
                             </table>
                           </div>
@@ -803,25 +1073,25 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                         th: {
                           component: 'th',
                           props: {
-                            className: 'bg-white wrap-break-word border border-gray-900 px-4 py-3 text-sm font-bold uppercase text-gray-900 tracking-wider md:text-base align-middle whitespace-normal text-center',
+                            className: 'bg-gray-50/50 break-words border-b border-gray-200 px-4 py-3 text-sm font-bold uppercase text-gray-700 tracking-wider md:text-base align-middle whitespace-normal text-center',
                           },
                         },
                         td: {
                           component: 'td',
                           props: {
-                            className: 'bg-white wrap-break-word border border-gray-900 px-4 py-3 text-sm font-medium leading-relaxed text-gray-800 md:text-base align-middle whitespace-normal',
+                            className: 'bg-white break-words border-b border-gray-100 px-4 py-3 text-sm font-normal leading-relaxed text-gray-700 md:text-base align-middle whitespace-normal',
                           },
                         },
                         strong: {
                           component: 'strong',
                           props: {
-                            className: 'wrap-break-word rounded bg-yellow-50/50 px-1 font-bold text-gray-900',
+                            className: 'break-words font-bold text-gray-900 px-0.5',
                           },
                         },
                         blockquote: {
                           component: 'blockquote',
                           props: {
-                            className: 'mb-12 wrap-break-word rounded-r-2xl border-l-4 border-blue-500 bg-gray-50/60 py-6 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
+                            className: 'mb-10 break-words rounded-r-xl border-l-[6px] border-blue-400 bg-blue-50/30 py-4 pl-8 italic text-lg text-gray-600 md:text-xl font-serif',
                           },
                         },
                         a: {
@@ -840,49 +1110,38 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                             const href = (props.href || '').trim();
 
                             // Logic to shorten link display text
-                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost') || displayText.length > 40) {
+                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost') || displayText.length > 30) {
                               try {
-                                // 1. If it's a localhost link (internal file), try to get the 'name' parameter
                                 if (href.includes('localhost') || href.includes('127.0.0.1')) {
                                   const url = new URL(href, 'http://localhost');
                                   const fileName = url.searchParams.get('name');
-                                  if (fileName) {
-                                    displayText = `📄 ${decodeURIComponent(fileName)}`;
-                                  } else {
-                                    displayText = '📄 view-document';
-                                  }
+                                  if (fileName) displayText = `📄 ${decodeURIComponent(fileName)}`;
+                                  else displayText = '📄 document';
                                 } 
-                                // 2. If it's an external link, show only the domain
                                 else if (displayText.startsWith('http')) {
                                   const url = new URL(displayText);
                                   displayText = url.hostname.replace('www.', '');
                                 }
-                                // 3. Fallback: If href is http but label is not, and label is too long
-                                else if (href.startsWith('http') && displayText.length > 40) {
+                                else if (href.startsWith('http') && displayText.length > 30) {
                                   const url = new URL(href);
-                                  displayText = `🔗 ${url.hostname.replace('www.', '')}`;
+                                  displayText = `🔗 ${url.hostname.replace('www', '')}`;
                                 }
                               } catch (e) {
-                                // If parsing fails, just truncate long text
-                                if (displayText.length > 30) {
-                                  displayText = displayText.substring(0, 27) + '...';
-                                }
+                                if (displayText.length > 20) displayText = displayText.substring(0, 17) + '...';
                               }
                             }
                             
-                            // Prevent [object Object] by ensuring we don't accidentally pass an object as text
-                            if (typeof displayText !== 'string') {
-                              displayText = 'Link';
-                            }
+                            if (typeof displayText !== 'string') displayText = 'Link';
 
                             return (
                               <a 
                                 {...props} 
-                                className="inline-block text-blue-600 hover:text-blue-800 underline transition-all cursor-pointer text-[13px] mt-1 opacity-90 hover:opacity-100 font-medium break-all max-w-full"
-                                title={rawText} // Show full URL/text on hover
+                                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 underline underline-offset-4 transition-all opacity-95 hover:opacity-100 font-medium break-all max-w-full"
+                                title={rawText}
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
+                                <FiExternalLink className="text-[10px] flex-shrink-0" />
                                 {displayText}
                               </a>
                             );
@@ -894,6 +1153,10 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                   {trimmedContent}
                 </Markdown>
               </article>
+
+              <div className="mt-auto pt-8 border-t border-gray-50 text-center text-[10px] text-gray-400 font-bold select-none print:hidden uppercase tracking-[0.3em] mx-10">
+                PAGINATION • {index + 1} / {array.length}
+              </div>
             </div>
           );
         })}
