@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Console log for debugging the real API response
-      // console.log('📡 [ThaiJO API Raw Response]:', JSON.stringify(parsed, null, 2));
+      console.log('📡 [ThaiJO API Raw Response]:', JSON.stringify(parsed, null, 2));
 
       return NextResponse.json(parsed, { status: response.status });
 

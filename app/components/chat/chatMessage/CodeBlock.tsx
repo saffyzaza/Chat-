@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface CodeBlockProps {
   code: string;
@@ -8,10 +8,12 @@ interface CodeBlockProps {
 }
 
 export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
+  const codeRef = useRef<HTMLElement>(null);
+
   useEffect(() => {
-    // Highlight code เมื่อ component mount
-    if (typeof window !== 'undefined' && (window as any).Prism) {
-      (window as any).Prism.highlightAll();
+    // Highlight เฉพาะ element นี้ ไม่ใช่ highlightAll() เพื่อป้องกันกระพริบ
+    if (typeof window !== 'undefined' && (window as any).Prism && codeRef.current) {
+      (window as any).Prism.highlightElement(codeRef.current);
     }
   }, [code, language]);
 
@@ -21,7 +23,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
         {language}
       </div>
       <pre className="m-0" style={{ margin: 0 }}>
-        <code className={`language-${language}`}>
+        <code ref={codeRef} className={`language-${language}`}>
           {code}
         </code>
       </pre>
