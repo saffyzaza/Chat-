@@ -17,13 +17,18 @@ interface MarkdownProps {
 }
 
 const NonMemoizedMarkdown = ({ children, className, charts, tables, maps, codeBlocks }: MarkdownProps) => {
-  // ลบแท็ก wrapper ที่ไม่รองรับ เช่น <markdown> หรือ <md> หรือ <thought> เพื่อหลีกเลี่ยง React error
+  // ลบแท็ก wrapper ที่ไม่รองรับ และกรองข้อมูลการคิดของ AI (Thought/Reasoning) ออก
   const sanitized = typeof children === 'string'
     ? children
         .replace(/<\/?markdown[^>]*>/gi, '')
         .replace(/<\/?md[^>]*>/gi, '')
         .replace(/<thought[^>]*>[\s\S]*?<\/thought>/gi, '')
         .replace(/<\/?thought[^>]*>/gi, '')
+        // กรองการคิดที่เป็นข้อความดิบ (มักพบใน Gemini Flash Preview)
+        .replace(/^thought\s+[\s\S]*?(\n\n|$)/i, '') // ตัดบรรทัดที่ขึ้นต้นด้วย thought จนกว่าจะเจอขึ้นย่อหน้าใหม่
+        .replace(/\n?thought[:\s][\s\S]*?(\n\n|$)/gi, '')
+        // กรองหัวข้อย่อยที่เป็นการสั่งการตัวเองที่ AI เผลอพิมพ์ออกมา
+        .replace(/\n\* (Academic|Professional Thai|Start directly|Mandatory sections|Citations|References|Length|Table|Hotlines|Suggestions|Closing).*?(\n|$)/gi, '')
         // แก้ไขช่องว่างระหว่าง ][ และ ]( ที่พบบ่อยในผลลัพธ์จาก AI
         .replace(/\]\s*\[/g, '][')
         // แก้ไขกรณี AI ขึ้นบรรทัดใหม่ระหว่าง [Title] และ (URL)
@@ -35,6 +40,9 @@ const NonMemoizedMarkdown = ({ children, className, charts, tables, maps, codeBl
         })
         // แก้ไข [text] (url) -> [text](url) แบบทั่วไป
         .replace(/\[([^\]]+)\]\s*\((https?:\/\/[^\s\n)]+)\)/g, '[$1]($2)')
+        // ✨ ใหม่: แยกรายการอ้างอิงที่ AI อาจเขียนติดกันในส่วนท้ายคำตอบ (เช่น [1]...[2])
+        // โดยมองหาวงเล็บปิดหรือปี พ.ศ. แล้วตามด้วยเว้นวรรคและ [n]
+        .replace(/(\)|25\d{2}|20\d{2})\s+(\[\d+\])/g, '$1\n\n$2')
     : children;
 
   return (

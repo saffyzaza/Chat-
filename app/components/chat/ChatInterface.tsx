@@ -207,6 +207,12 @@ export const ChatInterface = () => {
     // 2. จัดการเรื่องลิงก์ซ้อน (บางครั้ง AI ใส่ URL ในวงเล็บซ้ำ)
     t = t.replace(/\(\((https?:\/\/[^\s)]+)\)\)/g, '($1)');
 
+    // 3. ใหม่: บังคับให้ URL ที่เปิดด้วย http/https และไม่มี [] ครอบอยู่ เป็น [URL](URL) เพื่อให้คลิกได้
+    // (เฉพาะบรรทัดที่ขึ้นต้นด้วยช่องว่างหรืออยู่โดดๆ ท้ายคำตอบ)
+    t = t.replace(/(?:^|\n)([ \t]*)(https?:\/\/[^\s\n\(\)\[\]]+)([ \t]*(?:\n|$))/g, (match, space, url, tail) => {
+      return `${space}[${url}](${url})${tail}`;
+    });
+
     return t;
   };
 
@@ -216,26 +222,35 @@ export const ChatInterface = () => {
 
     const lines = text.split(/\r?\n/);
     const normalized = lines.map((line) => {
-      // คัดกรองเฉพาะบรรทัดที่เป็นรายการอ้างอิงท้ายคำตอบ เช่น [1] ... หรือ เอกสารอ้างอิง: [1] ...
-      const match = line.match(/(?:^|:)\s*\[(\d+)\]\s*(.+)$/);
+      // คัดกรองบรรทัดรายการอ้างอิงท้ายคำตอบ [1] ... หรือ 1. ...
+      const match = line.match(/(?:^|:)\s*(?:\[(\d+)\]|(\d+)\.)\s*(.+)$/);
       if (!match) return line;
       
-      // ถ้าบรรทัดนี้ยาวเกินไป หรือ สั้นเกินไป (เช่น เป็นแค่การอ้างอิงในเนื้อหา [1]) ให้ข้าม
-      if (line.length > 800 || match[2].trim().length < 10) return line;
+      // ถ้าบรรทัดนี้ยาวเกินไป หรือ สั้นเกินไป ข้าม (กันกรณีเนื้อหาแชทมีตัวเลขนำหน้า)
+      if (line.length > 800 || match[3].trim().length < 10) return line;
 
-      // ถ้ามีการระบุ "ผู้จัดทำ" หรือ "Producer" อยู่แล้ว ไม่ต้องเติมซ้ำ
-      if (/ผู้จัดทำ\s*:|producer\s*:/i.test(line)) return line;
+      // ถ้ามีการอ้างอิงถึงวันที่เข้าถึง หรือ ผู้จัดทำ อยู่แล้ว ไม่ต้องเติมซ้ำ
+      if (/เข้าถึงเมื่อ|ผู้จัดทำ\s*:|producer\s*:/i.test(line)) return line;
 
-      const index = parseInt(match[1], 10);
+      const index = parseInt(match[1] || match[2], 10);
       if (isNaN(index) || index < 1) return line;
 
       const producer = producerByIndex[index - 1];
-      // หากไม่มีข้อมูลผู้จัดทำจริงๆ ให้ข้ามการเติม (ดีกว่าแสดงว่า "ไม่ระบุ")
       if (!producer || producer === 'ไม่ระบุผู้แต่ง' || producer === 'ไม่ระบุ') {
         return line;
       }
+      
+      // วันที่ปัจจุบันสำหรับใช้ในส่วนอ้างอิง
+      const now = new Date();
+      const thaiMonths = [
+        'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+        'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+      ];
+      const dateStr = `${thaiMonths[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 
-      return `${line.trim()} — ผู้จัดทำ: ${producer}`;
+      // รูปแบบ: ชื่อรายการ - ผู้จัดทำ, เข้าถึงเมื่อ [วันที่]
+      // เพิ่ม \n\n ท้ายบรรทัดเพื่อให้ Markdown แสดงผลขึ้นบรรทัดใหม่แน่นอน (Paragraph Break)
+      return `${line.trim()} - ${producer}, เข้าถึงเมื่อ ${dateStr}\n\n`;
     });
 
     return normalized.join('\n');
@@ -247,31 +262,29 @@ export const ChatInterface = () => {
     return t.trim();
   };
 
-  const buildSourceSummary = (fileInfos: any[], apiEndpoints: string[]): string => {
-    if (fileInfos.length === 0 && apiEndpoints.length === 0) return '';
+  const fixCitationSpacing = (textRaw: string): string => {
+    let t = textRaw || '';
     
-    const lines: string[] = ['\n---\n**แหล่งข้อมูลอ้างอิง (Source Summary)**:'];
-
-    if (fileInfos.length > 0) {
-      lines.push(`- 📑 **ไฟล์ที่ใช้ประมวลผล:** ${fileInfos.length} ไฟล์`);
-      fileInfos.forEach((info, index) => {
-        const title = info.apa?.projectInfo?.titleThai || info.apa?.titleThai || info.name || 'ไม่ระบุชื่อไฟล์';
-        const displayTitle = title.length > 100 ? title.substring(0, 100) + '...' : title;
-        lines.push(`  [${index + 1}] ${displayTitle} (${info.name})`);
-      });
+    // 1. ตรวจสอบว่ามี "เอกสารอ้างอิงเชิงวิชาการ:" หรือไม่
+    const headerPattern = /(เอกสารอ้างอิง(?:เชิงวิชาการ)?\s*:)/gi;
+    const match = headerPattern.exec(t);
+    if (match) {
+      const headerIdx = match.index;
+      const headerText = match[0];
+      const before = t.slice(0, headerIdx);
+      let after = t.slice(headerIdx + headerText.length);
+      
+      // ในส่วนหลังหัวข้อ (รายการอ้างอิง): ให้ขึ้นบรรทัดใหม่หน้าทุกๆ [n] หรือ n.
+      // เน้นกรณีที่ citation อยู่หลังตัวอักษรอื่นโดยตรงโดยไม่มี newline
+      after = after.replace(/([^\n])\s*(\[\d+\]|(?:\d+)\.)/g, '$1\n\n$2').trim();
+      
+      return before + headerText + '\n\n' + after;
     }
-
-    if (apiEndpoints.length > 0) {
-      const friendlyApis = apiEndpoints.map(api => {
-        const name = api.split('/').pop();
-        if (name === 'accident') return 'ฐานข้อมูลอุบัติเหตุ';
-        if (name === 'chatweather') return 'ข้อมูลพยากรณ์อากาศ';
-        return name;
-      });
-      lines.push(`- 🌐 **ระบบข้อมูลภายนอก:** ${friendlyApis.join(', ')}`);
-    }
-
-    return '\n' + lines.join('\n');
+    
+    // 2. Fallback: ถ้าไม่มีห้วข้อชัดเจน แต่มีการ clumped (เช่น ปี 2568 [2])
+    t = t.replace(/(\d{4}|เข้าถึงเมื่อ\s*[^[\]\n]+|[^\s\n][)\]\.])\s*(\[\d+\]|(?:\d+)\.)/g, '$1\n\n$2');
+    
+    return t;
   };
 
   const readGeminiSseText = async (response: Response): Promise<string> => {
@@ -300,9 +313,12 @@ export const ChatInterface = () => {
 
         try {
           const json = JSON.parse(payload);
-          const parts = json?.candidates?.[0]?.content?.parts;
+          const parts = json?.candidates?.[0]?.content?.parts || [];
           const chunkText = Array.isArray(parts)
-            ? parts.map((part: any) => part?.text || '').join('')
+            ? parts
+                .filter((p: any) => !p.thought && p.text) // กรองส่วนที่เป็น thought process ออก
+                .map((p: any) => p.text)
+                .join('')
             : '';
           if (chunkText) accumulated += chunkText;
         } catch {
@@ -377,7 +393,7 @@ export const ChatInterface = () => {
   };
 
   type AdminApiCallPlan = {
-    endpoint: 'accident' | 'chatweather' | 'thaijo';
+    endpoint: 'accident' | 'chatweather' | 'thaijo' | 'diabetes' | 'mental';
     payload: Record<string, any>;
   };
 
@@ -385,7 +401,12 @@ export const ChatInterface = () => {
     useAccident?: boolean;
     useChatweather?: boolean;
     useThaijo?: boolean;
+    useDiabetes?: boolean;
+    useMental?: boolean;
     accidentMessage?: string;
+    diabetesMessage?: string;
+    mentalMessage?: string;
+    mentalTable?: string;
     thaijoTerm?: string;
     thaijoPage?: number;
     thaijoSize?: number;
@@ -408,7 +429,12 @@ export const ChatInterface = () => {
   "useAccident": false,
   "useChatweather": false,
   "useThaijo": false,
+  "useDiabetes": false,
+  "useMental": false,
   "accidentMessage": "",
+  "diabetesMessage": "",
+  "mentalMessage": "",
+  "mentalTable": "bipola",
   "thaijoTerm": "",
   "thaijoPage": 1,
   "thaijoSize": 3,
@@ -422,6 +448,8 @@ export const ChatInterface = () => {
 - useAccident = true สำหรับคำถามเกี่ยวกับสถิติอุบัติเหตุ/ความปลอดภัยบนถนน
 - useChatweather = true สำหรับสภาพอากาศ
 - useThaijo = true สำหรับคำถามวิชาการ/วิจัย (เช่น ค้นหางานวิจัย, หาผู้เชี่ยวชาญ, ข้อมูลวิชาการจากวารสารไทย)
+- useDiabetes = true สำหรับคำถามเกี่ยวกับข้อมูลเบาหวาน, สถิติผู้ป่วยเบาหวาน, เป้าหมายและผลงานการดูแลเบาหวาน, รายงานเบาหวานรายพื้นที่/รายเดือน (diabetesMessage ใส่คำถามเต็มของผู้ใช้)
+- useMental = true สำหรับคำถามเกี่ยวกับสุขภาพจิต, ข้อมูลผู้ป่วยไบโพลาร์/โรคซึมเศร้า/โรคจิตเวช, สถิติผู้ป่วยสุขภาพจิต, ข้อมูลจากฐานข้อมูลสุขภาพจิต (mentalMessage ใส่คำถามเต็มของผู้ใช้, mentalTable ใส่ชื่อตาราง เช่น 'bipola')
 - ถ้า useThaijo=true:
   - thaijoTerm: คำสำคัญสั้นๆ (Key phrase) เช่น "เบาหวาน", "บุหรี่มือสอง", "อุบัติเหตุ"
   - thaijoPage: ปกติคือ 1
@@ -519,6 +547,25 @@ export const ChatInterface = () => {
             title: true,
             author: true,
             abstract: true,
+          },
+        });
+      }
+
+      if (decision.useDiabetes === true) {
+        normalizedCalls.push({
+          endpoint: 'diabetes',
+          payload: {
+            message: String(decision.diabetesMessage || text),
+          },
+        });
+      }
+
+      if (decision.useMental === true) {
+        normalizedCalls.push({
+          endpoint: 'mental',
+          payload: {
+            message: String(decision.mentalMessage || text),
+            tableName: String(decision.mentalTable || 'bipola'),
           },
         });
       }
@@ -630,6 +677,35 @@ export const ChatInterface = () => {
           term: (result.payload as any)?.term,
           articles: Array.isArray(articles) ? articles.slice(0, Math.max(3, requestedSize)) : [],
           message: (result.data as any)?.message,
+        };
+      }
+
+      if (result.endpoint === 'diabetes') {
+        return {
+          endpoint: result.endpoint,
+          ok: result.ok,
+          status: result.status,
+          sql: result.data?.sql,
+          reply: result.data?.reply,
+          chart: result.data?.chart || null,
+          total: result.data?.total,
+          rows: Array.isArray(result.data?.rows) ? result.data.rows.slice(0, 50) : [],
+          message: result.data?.message,
+        };
+      }
+
+      if (result.endpoint === 'mental') {
+        return {
+          endpoint: result.endpoint,
+          ok: result.ok,
+          status: result.status,
+          sql: result.data?.sql,
+          reply: result.data?.reply,
+          chart: result.data?.chart || null,
+          total: result.data?.total,
+          tableName: result.data?.tableName,
+          rows: Array.isArray(result.data?.rows) ? result.data.rows.slice(0, 50) : [],
+          message: result.data?.message,
         };
       }
 
@@ -1060,20 +1136,31 @@ export const ChatInterface = () => {
 
     // สร้าง contents สำหรับ Gemini API พร้อม conversation history (ไม่ยัดระบบเป็น user)
     const contents: any[] = [];
-    const recentMessages = messages.slice(-10); // เพิ่มหน่วยความจำย้อนหลัง
-    for (const msg of recentMessages) {
+    const recentMessages = messages.slice(-20); // หน่วยความจำย้อนหลัง 20 ข้อความ
+
+    // หา index ของ planContent ล่าสุด เพื่อ include เต็ม ๆ เฉพาะอันนั้น อันเก่า truncate
+    const lastPlanIdx = [...recentMessages].reverse().findIndex(m => m.planContent);
+    const lastPlanAbsIdx = lastPlanIdx >= 0 ? recentMessages.length - 1 - lastPlanIdx : -1;
+
+    for (let i = 0; i < recentMessages.length; i++) {
+      const msg = recentMessages[i];
       if (msg.role === 'user') {
-        const userParts: any[] = [{ text: msg.content }];
         contents.push({
           role: 'user',
-          parts: userParts
+          parts: [{ text: msg.content }]
         });
       } else if (msg.role === 'assistant') {
-        // รวมเนื้อหาจากทั้ง content และ planContent (ถ้ามี) เพื่อให้ AI จำสิ่งที่ร่างไว้ในแผงข้างได้
-        const fullContent = msg.planContent 
-          ? `${msg.content}\n\n[เนื้อหาในแผงแผนงาน]:\n${msg.planContent}`
-          : msg.content;
-          
+        let fullContent = msg.content;
+        if (msg.planContent) {
+          if (i === lastPlanAbsIdx) {
+            // plan ล่าสุด — include เต็ม เพื่อให้ AI จำบริบทสำคัญ
+            fullContent = `${msg.content}\n\n[เนื้อหาในแผงแผนงาน]:\n${msg.planContent}`;
+          } else {
+            // plan เก่า — truncate เพื่อไม่ให้บวม context
+            const truncated = msg.planContent.substring(0, 800);
+            fullContent = `${msg.content}\n\n[สรุปแผนงานก่อนหน้า (ตัดทอน)]:\n${truncated}…`;
+          }
+        }
         contents.push({
           role: 'model',
           parts: [{ text: fullContent }]
@@ -1182,7 +1269,7 @@ export const ChatInterface = () => {
       const autoFileCount = autoAttachedFiles?.length || 0;
       const totalAttachedFileCount = manualFileCount + autoFileCount;
       const isSpecialTool = !!(selectedTool && [
-        'เขียนแผนงาน', 'สรุปรายงาน', 'เทียบข้อมูล',
+        'เขียนแผนงาน', 'สรุปรายงาน', 'เทียบข้อมูล', 'สร้างกราฟ',
         'A = บทความต้นฉบับ'
         , 'B = แนวทางการเฝ้าระวัง สอบสวน ควบคุมโรค', 'C = สถานการณ์โรค'
       ].includes(selectedTool));
@@ -1202,8 +1289,6 @@ export const ChatInterface = () => {
           currentSystemPrompt = PROMPT_CONSULT;
         } else if (selectedTool === 'เทียบข้อมูล' || selectedTool === 'เปรียบเทียบข้อมูล') {
           currentSystemPrompt = PROMPT_COMPARE;
-        } else if (selectedTool === 'สร้างกราฟ') {
-          currentSystemPrompt = PROMPT_CHART_DOC;
         } else if (selectedTool === 'ค้นหาข้อมูล') {
           currentSystemPrompt = PROMPT_SEARCH;
         } else if (selectedTool === 'A = บทความต้นฉบับ') {
@@ -1213,6 +1298,9 @@ export const ChatInterface = () => {
         } else if (selectedTool === 'C = สถานการณ์โรค') {
           currentSystemPrompt = PROMPTC;
         }
+      } else if (selectedTool === 'สร้างกราฟ') {
+        // สร้างกราฟ: ไม่ใช่ special tool (ผลไม่ไปที่ plan panel) แต่ใช้ prompt เฉพาะ
+        currentSystemPrompt = PROMPT_CHART_DOC;
       } else if (totalAttachedFileCount > 0) {
         // หากมีการค้นพบไฟล์อัตโนมัติ ให้ใช้ PROMPT_STEP_READ เพื่อวิเคราะห์และอ้างอิง
         currentSystemPrompt = PROMPT_STEP_READ;
@@ -1231,7 +1319,7 @@ export const ChatInterface = () => {
         temperature: isSpecialTool ? 0.8 : 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: (isSpecialTool || totalAttachedFileCount >= 2) ? 16384 : 4096,
+        maxOutputTokens: (isSpecialTool || totalAttachedFileCount >= 2) ? 65536 : 4096,
       };
 
       // --- ส่วนการเรียก API (Unified Flow) ---
@@ -1324,6 +1412,14 @@ export const ChatInterface = () => {
         return organization ? `${author}, ${organization}` : author;
       });
 
+      // วันที่ปัจจุบันสำหรับใช้ในส่วนอ้างอิง
+      const now = new Date();
+      const thaiMonths = [
+        'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+        'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+      ];
+      const dateStr = `${thaiMonths[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
+
       // 📋 สร้าง File Context จากไฟล์ที่รวบรวมได้ (ใช้ชุดตัวเลขเดียวเพื่อป้องกันความสับสน)
       fileContext = '\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
       fileContext += '📚 **รายการเอกสารอ้างอิงสำหรับคำตอบนี้ (Session Context)**:\n';
@@ -1332,7 +1428,7 @@ export const ChatInterface = () => {
       allFileInfos.forEach((info, index) => {
         const fileIndex = index + 1;
         const title = info.apa?.projectInfo?.titleThai || info.apa?.titleThai || info.name;
-        const author = info.apa?.projectInfo?.responsibleAuthor || info.apa?.projectInfo?.authorNames || 'ไม่ระบุผู้แต่ง';
+        const author = info.apa?.projectInfo?.responsibleAuthor || info.apa?.projectInfo?.authorNames;
         const organization = info.apa?.projectInfo?.organization || '';
         const authorInfo = organization ? `${author}, ${organization}` : author;
         
@@ -1354,57 +1450,87 @@ export const ChatInterface = () => {
         fileContext += '\n';
       });
       
-      fileContext += '⚠️ **กฎสำคัญ:**\n';
-      fileContext += '1. ให้ใช้ข้อมูล "เฉพาะ" จากไฟล์ที่ระบุข้างต้นเท่านั้น\n';
-      fileContext += '2. อ้างอิงด้วยหมายเลขลำดับในเนื้อหา เช่น [1], [2]\n';
-      fileContext += '3. หากไฟล์ใดไม่อยู่ในรายการด้านบน "ห้าม" นำมาเขียนอ้างอิงหรือสร้างชื่อไฟล์ขึ้นมาเองเด็ดขาด\n';
-      fileContext += '4. ในส่วน "เอกสารอ้างอิง" ท้ายคำตอบ ต้องใส่ลิงก์ URL จริงในรูปแบบ [ชื่อเรื่อง](URL) เสมอ (ห้ามมีช่องว่างระว่าง ] และ ( )\n';
-      fileContext += '5. ตอนสรุป "เอกสารอ้างอิง" ท้ายคำตอบ ต้องระบุ "ผู้จัดทำ" ทุกบรรทัดเสมอ\n';
-      fileContext += '6. รูปแบบรายการอ้างอิงต้องตรงตามนี้เป๊ะ: [ลำดับ] [ชื่อเรื่อง](URL) — ผู้จัดทำ: ชื่อผู้แต่ง/หน่วยงาน\n';
-      fileContext += '   ตัวอย่าง: [1] [รายงานสถานการณ์สุขภาพ 2567](http://...) — ผู้จัดทำ: สำนักงานสาธารณสุขจังหวัด...\n';
-      fileContext += '7. ห้ามใส่เครื่องหมายตกแต่งอื่นๆ ในลิงก์ URL นอกจากสิ่งที่ระบบให้มา\n';
-      fileContext += '8. ถ้ามีไฟล์แนบตั้งแต่ 3 ไฟล์ขึ้นไป ให้ตอบแบบเชิงวิเคราะห์ยาวประมาณ 2 หน้า A4\n';
-      fileContext += '9. ในคำตอบให้ใช้ "สรุปในรูปแบบตาราง" เสมอ โดยระบุข้อมูลดิบจากไฟล์นั้นๆ สำหรับหัวข้อ: ตารางสรุปตัวเลขสำคัญ\n';
-      fileContext += '   - รูปแบบตารางเบื้องต้น: ```json:table { "title": "ชื่อตาราง", "headers": ["หัวข้อ", "รายละเอียด"], "rows": [ ["ก", "ข"] ] } ```\n';
-      fileContext += '10. ในคำตอบหลักให้ครอบคลุมหัวข้อย่อยอย่างน้อย: ภาพรวมเชิงตัวเลข, ตารางสรุปตัวเลขสำคัญ, วิเคราะห์ความหมายของตัวเลข (รวมข้อวิเคราะห์จากการวิจัยไทยถ้ามี), ข้อเสนอเชิงปฏิบัติ\n';
-      fileContext += '11. ห้ามเดาตัวเลข ถ้าเอกสารไม่ระบุตัวเลขให้เขียนว่า "ไม่พบตัวเลขในเอกสารที่แนบ"\n';
-      fileContext += '12. หากมีข้อมูลจาก ADMIN_API_RESULTS ให้ผสานข้อมูลสถิติจริง (Accident/Weather) เข้ากับเนื้อหาจากงานวิจัย (ThaiJO) เพื่อให้คำตอบสมบูรณ์ที่สุด\n';
+      fileContext += '⚠️ **กฎเหล็ก (Mandatory Rules):**\n';
+      fileContext += '1. ตอบเป็นภาษาไทยที่สุภาพและเป็นทางการ (Academic & Professional Thai)\n';
+      fileContext += '2. ห้ามพิมพ์ขั้นตอนการคิด (thoughts/reasoning) หรือทวนกติกาเหล่านี้ออกมาในคำตอบ ให้เริ่มที่เนื้อหาคำตอบทันที\n';
+      fileContext += '3. ใช้ข้อมูลอ้างอิงจากรายการด้านบนเท่านั้น โดยระบุ [1], [2] ในเนื้อหา\n';
+      fileContext += '4. รูปแบบรายการอ้างอิงท้ายคำตอบ: ให้ขึ้นบรรทัดใหม่สำหรับแต่ละรายการ (One line per citation) และใช้รูปแบบ: หมายเลข. ชื่อเรื่อง - แหล่งที่มา, เข้าถึงเมื่อ วันที่ปัจจุบัน\n';
+      fileContext += `   (ตัวอย่าง: 1. ชื่อเรื่อง - สสส, เข้าถึงเมื่อ ${dateStr})\n`;
+      fileContext += '   [📄 เปิดเอกสารอ้างอิง](URL_LINK)\n';
+      fileContext += '5. หากเนื้อหายาว ให้แบ่งหัวข้อ: ภาพรวมเชิงตัวเลข > สรุปในรูปแบบตาราง (json:table) > วิเคราะห์ผล > ข้อเสนอแนะ\n';
+      fileContext += '6. ห้ามใช้คำว่า [API] หรือ (ฐานข้อมูล) ในการอ้างอิง ให้อ้างอิงเป็นตัวเลข [1], [2] ตามลำดับเอกสารด้านบนเท่านั้น\n';
+      fileContext += '7. ห้ามใช้หัวข้อ "แหล่งข้อมูลอ้างอิง (Source Summary)" ให้ใช้คำว่า "เอกสารอ้างอิงเชิงวิชาการ" แทน\n';
       fileContext += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
 
       setLoadingStatus('สสส กำลังหาข้อมูลและประมวลผล...');
 
       // ปรับปรุงคำสั่งเมื่อมีการทำงานร่วมกับไฟล์หรือเครื่องมือพิเศษ
+      // 💡 ย้ายไปไว้ใน System Instruction เพื่อให้ AI ไม่สับสนและไม่พิมพ์ Thought ออกมา
       if (isSpecialTool || allFileInfos.length > 0) {
-        const lastMsg = currentContents[currentContents.length - 1];
-        
-        // แนบ fileContext เข้าไปใน User Turn ล่าสุด
         let instructions = `\n\n${fileContext}`;
         if (isSpecialTool) {
-          instructions += `\n\n(ภารกิจ: ${selectedTool} - โปรดใช้ข้อมูลจากไฟล์ที่ระบุในรายการ [1] ถึง [${allFileInfos.length}] เท่านั้น ห้ามอ้างอิงนอกเหนือจากนี้)`;
+          instructions += `\n\n(ภารกิจปัจจุบัน: ${selectedTool} - โปรดใช้ข้อมูลจากไฟล์ที่ระบุในรายการ [1] ถึง [${allFileInfos.length}] เท่านั้น ห้ามอ้างอิงนอกเหนือจากนี้)`;
         }
-        
-        // ค้นหา text part เพื่อเตรียมส่งคำสั่ง (หลีกเลี่ยงการเขียนทับ inlineData/binary)
-        const textPart = lastMsg.parts.find((p: any) => p.text !== undefined);
-        if (textPart) {
-          textPart.text += instructions;
-        } else {
-          lastMsg.parts.push({ text: instructions });
-        }
+        systemInstruction.parts[0].text += instructions;
       }
 
       if (!isSpecialTool && allFileInfos.length === 0 && usedAdminEndpoints.length === 0) {
-        const lastMsg = currentContents[currentContents.length - 1];
-        const strictNoSourceInstruction = '\n\nข้อกำหนดบังคับ: รอบนี้ไม่มีไฟล์อ้างอิงและไม่มีข้อมูลจาก API เพิ่มเติม ห้ามสร้างหัวข้อเอกสารอ้างอิง ห้ามใส่ [1] [2] หรือ URL อ้างอิงใดๆ';
-        const textPart = lastMsg?.parts?.find((part: any) => part.text !== undefined);
-        if (textPart) {
-          textPart.text += strictNoSourceInstruction;
-        } else {
-          lastMsg.parts.push({ text: strictNoSourceInstruction });
-        }
+        systemInstruction.parts[0].text += '\n\nข้อกำหนดบังคับ: รอบนี้ไม่มีไฟล์อ้างอิงและไม่มีข้อมูลจาก API เพิ่มเติม ห้ามสร้างหัวข้อเอกสารอ้างอิง ห้ามใส่ [1] [2] หรือ URL อ้างอิงใดๆ';
+      }
+
+      if (usedAdminEndpoints.includes('/api/admin/diabetes')) {
+        const diabetesInstruction = `
+
+ข้อกำหนดเพิ่มเติมเมื่อมีข้อมูลเบาหวาน (ADMIN_API_RESULTS จาก diabetes):
+- ให้วิเคราะห์และสรุปข้อมูลจากผลลัพธ์ diabetes API เป็นหลัก
+- ถ้าผลลัพธ์มีข้อมูลตัวเลข ให้สร้าง JSON Chart ท้ายคำตอบในรูปแบบ:
+
+\`\`\`json:chart-ai
+{
+  "type": "bar",
+  "title": "ชื่อกราฟ",
+  "data": {
+    "labels": ["พื้นที่1", "พื้นที่2"],
+    "datasets": [{
+      "label": "ชื่อชุดข้อมูล",
+      "data": [100, 200]
+    }]
+  }
+}
+\`\`\`
+
+- ใช้ข้อมูลจาก rows ใน ADMIN_API_RESULTS เป็นตัวเลขจริงในกราฟ
+- ห้ามสร้างตัวเลขสมมติ ให้ใช้แค่ค่าจากฐานข้อมูลจริงเท่านั้น`;
+        systemInstruction.parts[0].text += diabetesInstruction;
+      }
+
+      if (usedAdminEndpoints.includes('/api/admin/mental')) {
+        const mentalInstruction = `
+
+ข้อกำหนดเพิ่มเติมเมื่อมีข้อมูลสุขภาพจิต (ADMIN_API_RESULTS จาก mental):
+- ให้วิเคราะห์และสรุปข้อมูลจากผลลัพธ์ mental API เป็นหลัก
+- ถ้าผลลัพธ์มีข้อมูลตัวเลข ให้สร้าง JSON Chart ท้ายคำตอบในรูปแบบ:
+
+\`\`\`json:chart-ai
+{
+  "type": "bar",
+  "title": "ชื่อกราฟ",
+  "data": {
+    "labels": ["รายการที่1", "รายการที่2"],
+    "datasets": [{
+      "label": "ชื่อชุดข้อมูล",
+      "data": [100, 200]
+    }]
+  }
+}
+\`\`\`
+
+- ใช้ข้อมูลจาก rows ใน ADMIN_API_RESULTS เป็นตัวเลขจริงในกราฟ
+- ห้ามสร้างตัวเลขสมมติ ให้ใช้แค่ค่าจากฐานข้อมูลจริงเท่านั้น`;
+        systemInstruction.parts[0].text += mentalInstruction;
       }
 
       if (usedAdminEndpoints.includes('/api/admin/accident')) {
-        const lastMsg = currentContents[currentContents.length - 1];
         const mapInstruction = `
 
 ข้อกำหนดเพิ่มเติมเมื่อมีข้อมูลอุบัติเหตุ:
@@ -1431,12 +1557,7 @@ export const ChatInterface = () => {
 \`\`\`
 
 - ห้ามใส่ข้อมูลสมมติ ถ้าไม่พบพิกัดหรือข้อมูลใดให้เว้นหรือระบุว่าไม่พบตามจริง`; 
-        const textPart = lastMsg?.parts?.find((part: any) => part.text !== undefined);
-        if (textPart) {
-          textPart.text += mapInstruction;
-        } else {
-          lastMsg.parts.push({ text: mapInstruction });
-        }
+        systemInstruction.parts[0].text += mapInstruction;
       }
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${API_KEY}`, {
@@ -1476,9 +1597,12 @@ export const ChatInterface = () => {
 
           try {
             const json = JSON.parse(payload);
-            const parts = json?.candidates?.[0]?.content?.parts;
+            const parts = json?.candidates?.[0]?.content?.parts || [];
             const chunkText = Array.isArray(parts)
-              ? parts.map((p: any) => p?.text || '').join('')
+              ? parts
+                  .filter((p: any) => !p.thought && p.text) // กรองส่วนที่เป็น thought process ออก
+                  .map((p: any) => p.text)
+                  .join('')
               : '';
 
             if (chunkText) {
@@ -1705,15 +1829,19 @@ export const ChatInterface = () => {
         const { cleaned: finalContent, followUps: fups } = extractFollowUpsAndClean(processedContent.trim());
         let finalSanitized = sanitizeTail(finalContent);
         finalSanitized = simplifyReferenceLinks(finalSanitized);
+        finalSanitized = fixCitationSpacing(finalSanitized);
         finalSanitized = enforceReferenceProducer(finalSanitized, referenceProducers);
+
+        // ✨ ใหม่: แปลง [API] เป็นตัวเลขที่ถูกต้อง (เช่น [4]) ถ้า AI ยังเผลอใช้
+        const firstApiIdx = allFileInfos.findIndex(f => f.source === 'thaijo') + 1;
+        if (firstApiIdx > 0) {
+          finalSanitized = finalSanitized.replace(/\[API\]/g, `[${firstApiIdx}]`);
+        }
 
         if (allFileInfos.length === 0 && usedAdminEndpoints.length === 0) {
           finalSanitized = removeDocumentReferenceSection(finalSanitized);
           finalSanitized = finalSanitized.replace(/\[(\d+)\]/g, '');
         }
-
-        const sourceSummary = buildSourceSummary(allFileInfos, usedAdminEndpoints);
-        finalSanitized = `${finalSanitized}\n\n${sourceSummary}`.trim();
 
         // กรณีที่การ Clean ทำให้ข้อความว่างเปล่า (เช่น มีแต่คำแนะนำคำถามต่อ)
         // ให้ใช้ข้อความดั้งเดิมที่ Trim แล้ว หรือข้อความเริ่มต้นหากว่างจริงๆ
@@ -1722,6 +1850,27 @@ export const ChatInterface = () => {
             finalSanitized = "นี่คือประเด็นที่น่าสนใจที่คุณสามารถถามต่อได้ครับ:";
           } else {
             finalSanitized = processedContent.trim() || "...";
+          }
+        }
+
+        // 💉 inject chart จาก diabetes API (ที่ AI วิเคราะห์แล้วใน route.ts)
+        // กรณีที่ AI ตอบกลับแต่ไม่ได้ generate ```json:chart-ai``` มาเอง
+        for (const apiResult of adminApiResults) {
+          if (apiResult.endpoint === 'diabetes' && apiResult.chart && typeof apiResult.chart === 'object') {
+            const hasDuplicateChart = charts.some(c =>
+              JSON.stringify(c?.data?.labels) === JSON.stringify(apiResult.chart?.data?.labels)
+            );
+            if (!hasDuplicateChart) {
+              charts.push(apiResult.chart);
+            }
+          }
+          if (apiResult.endpoint === 'mental' && apiResult.chart && typeof apiResult.chart === 'object') {
+            const hasDuplicateChart = charts.some(c =>
+              JSON.stringify(c?.data?.labels) === JSON.stringify(apiResult.chart?.data?.labels)
+            );
+            if (!hasDuplicateChart) {
+              charts.push(apiResult.chart);
+            }
           }
         }
 

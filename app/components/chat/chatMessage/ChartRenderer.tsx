@@ -124,36 +124,102 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
   const [isExporting, setIsExporting] = useState(false);
   const normalizedChart = normalizeChartData(chartData);
 
-  // ฟังก์ชันสำหรับ export รูปกราฟ
+  // ฟังก์ชันสำหรับ export รูปกราฟ — render บน offscreen canvas ขนาดคงที่
   const handleExportImage = async () => {
-    if (!canvasRef.current || !chartInstanceRef.current) return;
-    
+    if (!normalizedChart) return;
     setIsExporting(true);
     try {
-      // รอให้กราฟเรนเดอร์เสร็จสมบูรณ์
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // แปลง canvas เป็น blob
-      const canvas = canvasRef.current;
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const title = normalizedChart?.title || normalizedChart?.options?.plugins?.title?.text || 'chart';
-          const filename = `${title.replace(/[^a-zA-Z0-9ก-๙\s]/g, '_')}_${Date.now()}.png`;
-          
-          // ดาวน์โหลดไฟล์
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-        }
-        setIsExporting(false);
-      }, 'image/png', 1.0);
+      const Chart = (window as any)?.Chart;
+      const ChartDataLabels = (window as any)?.ChartDataLabels;
+      if (!Chart) { setIsExporting(false); return; }
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = 1400;
+      offscreen.height = 800;
+      const ctx = offscreen.getContext('2d');
+      if (!ctx) { setIsExporting(false); return; }
+
+      // พื้นหลังสีขาว
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, offscreen.width, offscreen.height);
+
+      const clonedData = JSON.parse(JSON.stringify(normalizedChart.data));
+
+      const exportChart = new Chart(ctx, {
+        type: normalizedChart.type,
+        data: clonedData,
+        plugins: ChartDataLabels ? [ChartDataLabels] : [],
+        options: {
+          responsive: false,
+          animation: false,
+          layout: {
+            padding: { top: 40, bottom: 20, left: 20, right: 30 },
+          },
+          plugins: {
+            datalabels: {
+              color: (context: any) =>
+                normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut'
+                  ? '#fff'
+                  : '#222',
+              display: true,
+              font: { weight: 'bold', size: 14 },
+              formatter: (value: any, context: any) => {
+                if (value === null || value === undefined) return '';
+                if (normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut') {
+                  const dataset = context.chart.data.datasets[0];
+                  const total = dataset.data.reduce((acc: number, val: number) => acc + (val || 0), 0);
+                  const pct = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
+                  return `${context.chart.data.labels?.[context.dataIndex] || ''}\n${pct}`;
+                }
+                return value.toLocaleString();
+              },
+              anchor: 'end',
+              align: 'top',
+              offset: 4,
+              clamp: true,
+            },
+            legend: {
+              display: true,
+              position: 'top' as const,
+              labels: { padding: 20, font: { size: 13 } },
+            },
+            title: {
+              display: !!(normalizedChart.title),
+              text: normalizedChart.title,
+              font: { size: 18, weight: 'bold' },
+              padding: { bottom: 24 },
+            },
+          },
+          scales: (normalizedChart.type === 'pie' || normalizedChart.type === 'doughnut')
+            ? {}
+            : {
+                x: { ticks: { font: { size: 12 } }, grid: { display: false } },
+                y: {
+                  beginAtZero: true,
+                  ticks: { font: { size: 12 } },
+                  grid: { color: 'rgba(0,0,0,0.05)' },
+                },
+              },
+        },
+      });
+
+      exportChart.update();
+      await new Promise(resolve => setTimeout(resolve, 120));
+
+      const png = offscreen.toDataURL('image/png', 1.0);
+      exportChart.destroy();
+
+      const title = normalizedChart.title || 'chart';
+      const filename = `${title.replace(/[^a-zA-Z0-9ก-๙\s]/g, '_')}_${Date.now()}.png`;
+      const link = document.createElement('a');
+      link.href = png;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     } catch (error) {
       console.error('Error exporting chart:', error);
+    } finally {
       setIsExporting(false);
     }
   };
@@ -270,6 +336,7 @@ export const ChartRenderer: React.FC<ChartRendererProps> = ({ chartData }) => {
         anchor: (context: any) => (normalizedChart.type === 'bar' || normalizedChart.type === 'line') ? 'end' : 'center',
         align: (context: any) => (normalizedChart.type === 'bar' || normalizedChart.type === 'line') ? 'top' : 'center',
         offset: 4,
+        clamp: true,
       };
 
       const defaultPlugins = {

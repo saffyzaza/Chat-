@@ -1,5 +1,5 @@
 'use client'; // จำเป็นต้องใช้ Client Component เพราะมี useState
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MobileHeader } from './components/MobileHeader';
 import { ChatInterface } from './components/chat/ChatInterface';
@@ -40,7 +40,9 @@ export default function Home() {
           <MobileHeader toggleSidebar={toggleSidebar} />
 
           {/* 8. หน้าแชท */}
-          <ChatInterface />
+          <Suspense fallback={<div className="flex-1 flex items-center justify-center">Loading...</div>}>
+            <ChatInterface />
+          </Suspense>
         </div>
 
         {/* 9. Backdrop (พื้นหลังมืดๆ ตอนเปิดบนมือถือ) */}

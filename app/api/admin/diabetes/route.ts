@@ -59,6 +59,7 @@ export const POST = withAuth(async (req: NextRequest, user) => {
 
 คำแนะนำ SQL สำคัญ:
 - ใช้ชื่อคอลัมน์ภาษาอังกฤษตามโครงสร้างข้างต้นเท่านั้น
+- **สำคัญมาก**: คอลัมน์ "F3" ต้องใช้เครื่องหมายคำพูดคู่เสมอ เช่น SELECT "F3" FROM diabetes (ห้ามเขียน F3 หรือ f3 โดยไม่มี quote)
 - "a_name" คือชื่อพื้นที่ เช่น อำเภอ, ตำบล หรือหน่วยงาน ให้ใช้ LIKE ในการค้นหา (เช่น WHERE a_name LIKE '%เมือง%')
 - "target" คือเป้าหมายรวมทั้งปี
 - "result" คือผลงานสะสมรวมทั้งปี
@@ -94,6 +95,9 @@ ${diabetesSchema}
       const selectIdx = lines.findIndex(line => /^\s*select\b/i.test(line));
       sql = selectIdx >= 0 ? lines.slice(selectIdx).join('\n').trim() : sqlReply.trim();
     }
+
+    // ป้องกัน F3 หลุด quote: PostgreSQL บน case-sensitive ต้องใช้ "F3" เสมอ
+    sql = sql.replace(/(?<!["\w])F3(?!["\w])/g, '"F3"');
 
     console.log('Generated SQL:', sql);
 

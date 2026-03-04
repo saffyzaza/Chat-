@@ -56,13 +56,15 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
 
   const formatReferenceBlock = (text: string): string => {
     if (!text) return text;
-    // ปรับปรุงการจัดรูปแบบส่วนอ้างอิงให้เป็นระเบียบ เป็น Flex-like list
-    return text.replace(/(เอกสารอ้างอิง(?:เชิงวิชาการ)?\s*:?)([\s\S]*)/i, (_match, header, tail) => {
+    // 1. ลบ ** และ # ที่ล้อมหัวข้ออ้างอิง ก่อน replace เพื่อไม่ให้ค้างเป็น orphan
+    const cleaned = text.replace(/[\*#\s]*(เอกสารอ้างอิง(?:เชิงวิชาการ)?)\s*:?[\*#\s]*/i, '\x00$1\x00');
+    // 2. แยกที่ placeholder แล้วจัดรูปแบบ
+    return cleaned.replace(/\x00(เอกสารอ้างอิง(?:เชิงวิชาการ)?)\x00([\s\S]*)/i, (_match, header, tail) => {
       const normalizedTail = String(tail || '')
         .replace(/\s*(\[\d+\])/g, '\n\n$1') // เว้นบรรทัดระหว่างรายการอ้างอิง
         .replace(/\n{3,}/g, '\n\n')
         .trim();
-      return `\n---\n\n### ${header}\n\n${normalizedTail}`;
+      return `\n\n[PAGE_BREAK]\n\n### ${header}\n\n${normalizedTail}`;
     });
   };
 
@@ -130,6 +132,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             title: {
               display: !!normalized.title,
               text: normalized.title,
+              font: { size: 18 },
             },
           },
           scales: normalized.type === 'pie' || normalized.type === 'doughnut'
@@ -143,6 +146,48 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
 
       chart.update();
       await new Promise((resolve) => setTimeout(resolve, 60));
+
+      // วาดตัวเลขกำกับบนกราฟด้วยตนเอง (ไม่ต้องพึ่ง plugin datalabels)
+      const isPieLike = normalized.type === 'pie' || normalized.type === 'doughnut';
+      context.save();
+      context.textBaseline = 'middle';
+      context.textAlign = 'center';
+
+      normalized.data.datasets.forEach((_ds: any, dsIdx: number) => {
+        try {
+          const meta = chart.getDatasetMeta(dsIdx);
+          if (!meta || !meta.data) return;
+          meta.data.forEach((element: any, dataIdx: number) => {
+            const rawVal = normalized.data.datasets[dsIdx]?.data?.[dataIdx];
+            if (rawVal === undefined || rawVal === null) return;
+            const val = Number(rawVal);
+            if (isNaN(val)) return;
+            const label = val.toLocaleString();
+
+            const { x, y } = element.tooltipPosition ? element.tooltipPosition() : element;
+
+            if (isPieLike) {
+              // สำหรับ pie/doughnut วาดตรงกลาง arc
+              context.font = 'bold 16px sans-serif';
+              context.fillStyle = '#ffffff';
+              context.strokeStyle = 'rgba(0,0,0,0.4)';
+              context.lineWidth = 3;
+              context.strokeText(label, x, y);
+              context.fillText(label, x, y);
+            } else {
+              // สำหรับ bar/line วางเลขเหนือแท่ง
+              const barTop = element.y ?? y;
+              context.font = 'bold 15px sans-serif';
+              context.fillStyle = '#222222';
+              context.fillText(label, x, barTop - 10);
+            }
+          });
+        } catch {
+          // ignore per-dataset errors
+        }
+      });
+      context.restore();
+
       const png = canvas.toDataURL('image/png', 1);
       chart.destroy();
 
@@ -156,7 +201,16 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                          status?.toLowerCase().includes('deep search') ||
                          content?.toLowerCase().includes('deep research') ||
                          content?.toLowerCase().includes('deep search');
-  const displayTitle = isDeepResearch ? 'Deep Research' : 'Project Planning Canvas';
+
+  // ดึงหัวข้อเอกสารจาก # แรกเพื่อแสดงใน header bar
+  const docTitleMatch = content?.match(/^#\s+(.+)/m);
+  const docTitle = docTitleMatch
+    ? docTitleMatch[1].replace(/\*\*/g, '').trim()
+    : null;
+
+  const displayTitle = isDeepResearch
+    ? 'Deep Research'
+    : docTitle || 'Project Planning Canvas';
 
   const handleDownload = async () => {
     if (!content) return;
@@ -198,6 +252,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             size: size,
             color: color,
             bold: forceBold,
+            language: { value: 'th-TH' },
           }));
         }
 
@@ -222,6 +277,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             font: DOC_CONFIG.font,
             size: size,
             color: color,
+            language: { value: 'th-TH' },
           }));
         }
 
@@ -236,10 +292,11 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
           size: size,
           color: color,
           bold: forceBold,
+          language: { value: 'th-TH' },
         }));
       }
 
-      return elements.length > 0 ? elements : [new TextRun({ text: cleanedText, font: DOC_CONFIG.font, size, color, bold: forceBold })];
+      return elements.length > 0 ? elements : [new TextRun({ text: cleanedText, font: DOC_CONFIG.font, size, color, bold: forceBold, language: { value: 'th-TH' } })];
     };
 
     const createStyledParagraph = (text: string, options: any = {}) => {
@@ -267,6 +324,21 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
 
     let i = 0;
     let listCounter = 1;
+    const plainTextBuffer: string[] = [];
+    const flushPlainText = () => {
+      if (plainTextBuffer.length === 0) return;
+      const combined = plainTextBuffer.join(' ').replace(/\s+/g, ' ').trim();
+      plainTextBuffer.length = 0;
+      if (!combined) return;
+      docChildren.push(
+        createStyledParagraph(combined, {
+          spacing: { before: 0, after: 0, line: 288, lineRule: 'auto' },
+          alignment: AlignmentType.BOTH,
+          wordWrap: true,
+          indent: { firstLine: 440 }, // Thai standard first-line indent
+        })
+      );
+    };
     while (i < lines.length) {
       const line = lines[i];
       const trimmed = line.trim();
@@ -274,6 +346,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       // Handle Page Breaks (Case-insensitive catch-all, handles backslashes like [PAGE\_BREAK])
       const isPageBreak = /\[PAGE[\\_]*BREAK\]/i.test(trimmed) || trimmed === '---page-break---';
       if (isPageBreak) {
+        flushPlainText();
         docChildren.push(new Paragraph({ children: [new PageBreak()] }));
         i++;
         continue;
@@ -292,6 +365,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       }
 
       if (isTableBlock) {
+        flushPlainText();
         listCounter = 1;
         const rows: TableRow[] = [];
         const tableLines: string[] = [];
@@ -368,6 +442,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       }
 
       if (trimmed === '```json:chart' || trimmed === '```json:chart-ai') {
+        flushPlainText();
         let chartContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
@@ -425,6 +500,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       }
 
       if (trimmed === '```json:table' || trimmed === '```json:table-ai') {
+        flushPlainText();
         let tableJsonContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
@@ -526,6 +602,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       }
 
       if (trimmed === '```json:map' || trimmed === '```json:map-ai') {
+        flushPlainText();
         let mapJsonContent = '';
         i++;
         while (i < lines.length && !lines[i].trim().includes('```')) {
@@ -622,77 +699,123 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
       }
 
       if (trimmed.startsWith('# ')) {
+        flushPlainText();
         listCounter = 1;
         docChildren.push(
           createStyledParagraph(trimmed.substring(2), {
             heading: HeadingLevel.HEADING_1,
-            spacing: { before: 400, after: 200 },
+            spacing: { before: 0, after: 0 },
             alignment: AlignmentType.CENTER,
             bold: true,
             size: DOC_CONFIG.sizeTitle,
           })
         );
       } else if (trimmed.startsWith('## ')) {
+        flushPlainText();
         listCounter = 1;
         docChildren.push(
           createStyledParagraph(trimmed.substring(3), {
             heading: HeadingLevel.HEADING_2,
-            spacing: { before: 300, after: 150 },
+            spacing: { before: 0, after: 0 },
             bold: true,
             color: '1A5F7A',
             size: DOC_CONFIG.sizeHeader,
           })
         );
       } else if (trimmed.startsWith('### ')) {
+        flushPlainText();
         listCounter = 1;
         docChildren.push(
           createStyledParagraph(trimmed.substring(4), {
             heading: HeadingLevel.HEADING_3,
-            spacing: { before: 200, after: 100 },
+            spacing: { before: 0, after: 0 },
             bold: true,
+            color: '000000',
             size: DOC_CONFIG.sizeMain + 4, // Slightly larger than main
             indent: { left: 360 },
           })
         );
       } else if (trimmed.startsWith('* ') || trimmed.startsWith('- ') || trimmed.match(/^\d+\. /)) {
-        const contentText =
-          trimmed.startsWith('* ') || trimmed.startsWith('- ') ? trimmed.substring(2) : trimmed.replace(/^\d+\. /, '');
+        flushPlainText();
+        const numMatch = trimmed.match(/^(\d+)\. /);
+        let contentText: string;
+        let itemIdx: number;
+        if (numMatch) {
+          // ใช้ตัวเลขจริงจาก markdown แทนการนับ counter เพื่อให้ถูกต้องเสมอ
+          itemIdx = parseInt(numMatch[1], 10);
+          contentText = trimmed.replace(/^\d+\. /, '');
+          listCounter = itemIdx + 1;
+        } else {
+          contentText = trimmed.substring(2);
+          itemIdx = listCounter++;
+        }
         docChildren.push(
           createStyledParagraph(contentText, {
             isList: true,
-            listIdx: listCounter++,
-            spacing: { after: 100 },
+            listIdx: itemIdx,
+            spacing: { after: 0 },
             indent: { left: 720, hanging: 360 },
+            alignment: AlignmentType.BOTH,
+            wordWrap: true,
           })
         );
       } else if (trimmed !== '') {
-        listCounter = 1;
-        docChildren.push(
-          createStyledParagraph(trimmed, {
-            spacing: { after: 150 },
-            lineSpacing: { line: 240 },
-            alignment: AlignmentType.LEFT,
-          })
-        );
+        plainTextBuffer.push(trimmed);
       } else {
-        listCounter = 1;
+        flushPlainText();
+        // ไม่ reset listCounter เมื่อเจอบรรทัดว่าง เพื่อให้รายการอ้างอิงที่มี \n\n คั่น
+        // ยังคงนับต่อเนื่องแทนที่จะกลับไปเป็น 1 ทุกรายการ
       }
       i++;
     }
+    flushPlainText(); // flush remaining buffer at end of section
 
     const doc = new Document({
       styles: {
         default: {
           document: {
             run: { size: DOC_CONFIG.sizeMain, font: DOC_CONFIG.font },
-            paragraph: { spacing: { line: 240 } },
+            paragraph: { spacing: { line: 288, lineRule: 'auto', before: 0, after: 0 } },
           },
         },
+        paragraphStyles: [
+          {
+            id: 'Normal',
+            name: 'Normal',
+            run: { font: DOC_CONFIG.font, size: DOC_CONFIG.sizeMain },
+            paragraph: { spacing: { before: 0, after: 0, line: 288, lineRule: 'auto' } },
+          },
+          {
+            id: 'Heading1',
+            name: 'heading 1',
+            basedOn: 'Normal',
+            run: { font: DOC_CONFIG.font, size: DOC_CONFIG.sizeTitle, bold: true, color: '000000' },
+            paragraph: { spacing: { before: 0, after: 0, line: 288, lineRule: 'auto' } },
+          },
+          {
+            id: 'Heading2',
+            name: 'heading 2',
+            basedOn: 'Normal',
+            run: { font: DOC_CONFIG.font, size: DOC_CONFIG.sizeHeader, bold: true, color: '1A5F7A' },
+            paragraph: { spacing: { before: 0, after: 0, line: 288, lineRule: 'auto' } },
+          },
+          {
+            id: 'Heading3',
+            name: 'heading 3',
+            basedOn: 'Normal',
+            run: { font: DOC_CONFIG.font, size: DOC_CONFIG.sizeMain + 4, bold: true, color: '000000' },
+            paragraph: { spacing: { before: 0, after: 0, line: 288, lineRule: 'auto' } },
+          },
+        ],
       },
       sections: [
         {
           properties: {
             page: {
+              size: {
+                width: 11906,  // A4 กว้าง 210mm = 11906 twips
+                height: 16838, // A4 สูง 297mm = 16838 twips
+              },
               margin: DOC_CONFIG.margins,
             },
           },
@@ -734,7 +857,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                 }),
               ],
               alignment: AlignmentType.CENTER,
-              spacing: { after: 600 },
+              spacing: { before: 0, after: 0, line: 288, lineRule: 'auto' },
             }),
             ...docChildren,
           ],
@@ -743,7 +866,19 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
     });
 
     const blob = await Packer.toBlob(doc);
-    saveAs(blob, `Project-Plan-${new Date().toISOString().split('T')[0]}.docx`);
+
+    // ดึงหัวข้อเอกสาร (# หรือ ## แรกที่เจอ) เพื่อใช้เป็นชื่อไฟล์
+    const titleMatch = content.match(/^#{1,2}\s+(.+)/m);
+    const rawTitle = titleMatch ? titleMatch[1] : 'Project-Plan';
+    const safeTitle = rawTitle
+      .replace(/\*\*/g, '')           // ลบ bold markers
+      .replace(/[\\/:*?"<>|]/g, '-')  // ลบอักขระต้องห้ามในชื่อไฟล์
+      .replace(/\s+/g, '-')           // แทนที่ช่องว่างด้วย -
+      .replace(/-{2,}/g, '-')         // ลด -- ซ้อนกัน
+      .replace(/^-|-$/g, '')          // ตัด - หัวท้าย
+      .substring(0, 80);              // จำกัดความยาว
+
+    saveAs(blob, `${safeTitle}-${new Date().toISOString().split('T')[0]}.docx`);
   };
 
   return (
@@ -954,7 +1089,7 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
             return (
             <div 
               key={index} 
-              className="w-full max-w-4xl bg-white shadow-[0_0_60px_-15px_rgba(0,0,0,0.15)] border border-gray-200 rounded-sm p-12 md:p-20 mb-12 min-h-[1123px] h-auto relative transition-all hover:shadow-2xl flex flex-col"
+              className="w-full max-w-4xl bg-white shadow-[0_0_60px_-15px_rgba(0,0,0,0.15)] border border-gray-200 rounded-sm p-12 md:p-20 mb-12 h-auto relative transition-all hover:shadow-2xl flex flex-col"
             > 
               <article className="prose prose-blue max-w-none pb-20 break-words">
                 <Markdown
@@ -1110,7 +1245,8 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                             const href = (props.href || '').trim();
 
                             // Logic to shorten link display text
-                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost') || displayText.length > 30) {
+                            // Only shorten when display text is itself a raw URL, or for localhost file links
+                            if (displayText.startsWith('http') || displayText.includes('localhost') || href.includes('localhost')) {
                               try {
                                 if (href.includes('localhost') || href.includes('127.0.0.1')) {
                                   const url = new URL(href, 'http://localhost');
@@ -1119,15 +1255,13 @@ export const ProjectPlan = ({ content, isLoading, status, onClose }: ProjectPlan
                                   else displayText = '📄 document';
                                 } 
                                 else if (displayText.startsWith('http')) {
+                                  // Display text is a raw URL — shorten to hostname
                                   const url = new URL(displayText);
                                   displayText = url.hostname.replace('www.', '');
                                 }
-                                else if (href.startsWith('http') && displayText.length > 30) {
-                                  const url = new URL(href);
-                                  displayText = `🔗 ${url.hostname.replace('www', '')}`;
-                                }
+                                // If display text is a meaningful title (not a URL), keep it as-is
                               } catch (e) {
-                                if (displayText.length > 20) displayText = displayText.substring(0, 17) + '...';
+                                if (displayText.startsWith('http')) displayText = displayText.substring(0, 30) + '...';
                               }
                             }
                             

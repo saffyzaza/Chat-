@@ -11,7 +11,8 @@ import {
   HiOutlineDesktopComputer,
   HiOutlineBookOpen,
   HiOutlineTable,
-  HiOutlineChatAlt2
+  HiOutlineChatAlt2,
+  HiOutlineDatabase
 } from 'react-icons/hi';
 
 const AdminMenuPage = () => {
@@ -114,6 +115,15 @@ const AdminMenuPage = () => {
       color: 'bg-amber-500',
       borderColor: 'border-amber-100',
       hoverColor: 'hover:border-amber-400'
+    },
+    {
+      title: 'ข้อมูลสุขภาพจิต',
+      description: 'สนทนาและวิเคราะห์ข้อมูลสถิติสุขภาพจิตจากฐานข้อมูล (bipola) ด้วย AI',
+      icon: <HiOutlineDatabase className="w-8 h-8" />,
+      href: '/admin/mental',
+      color: 'bg-pink-500',
+      borderColor: 'border-pink-100',
+      hoverColor: 'hover:border-pink-400'
     },
     {
       title: 'แชทสภาพอากาศ',
