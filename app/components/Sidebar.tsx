@@ -101,7 +101,7 @@ export const Sidebar = ({ isExpanded, toggleSidebar, expandSidebar }: SidebarPro
                     {/* Header: Logo + Toggle Button */}
                     <div className={`flex items-center ${isExpanded ? 'justify-between' : 'justify-center'} p-4 mb-4`}>
                         <div className={`flex items-center gap-5 ${isExpanded ? 'block' : 'hidden'}`}>
-                            <img src="https://s.imgz.io/2025/11/17/S__16498692-_1_-removebg-preview-removebg-preview6a198be1c3042511.png" alt="Logo 2" className="h-12" />
+                            <img src="/musya-removebg-preview.png" alt="สสส" className="h-12" />
                         </div>
                      
                         <button

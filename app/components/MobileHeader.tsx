@@ -20,7 +20,7 @@ export const MobileHeader = ({ toggleSidebar }: MobileHeaderProps) => {
       </button>
       
       {/* Mobile Logo */}
-      <img src="https://s.imgz.io/2025/11/17/S__16498692-_1_-removebg-preview-removebg-preview6a198be1c3042511.png" alt="Logo 2" className="h-12" />
+      <img src="/musya-removebg-preview.png" alt="Logo 2" className="h-12" />
       {/* Placeholder (เผื่อมีไอคอน Profile ด้านขวา) */}
       <div className="w-10"></div>
     </div>
