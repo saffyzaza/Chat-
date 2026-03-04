@@ -36,7 +36,7 @@ const SuggestionCard = ({ title, description, onClick }: { title: string, descri
 const WelcomeScreen = ({ onSuggestionClick }: { onSuggestionClick: (prompt: string) => void }) => (
   <>
     <div className="w-full flex flex-col items-center justify-center text-center gap-4  min-h-[30vh]">
-      <img src="https://s.imgz.io/2025/12/27/Logo-thaihealth149429a17bc1ae40.webp" alt="Logo" className="h-20" />
+      <img src="/Emblem_of_the_Thai_Health_Promotion_Foundation.svg.png" alt="Logo" className="h-20" />
       <p className="text-xl font-semibold text-gray-600">
         สำนักงานกองทุนสนับสนุนการสร้างเสริมสุขภาพ
       </p>
